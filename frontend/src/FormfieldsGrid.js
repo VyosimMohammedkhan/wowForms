@@ -7,14 +7,13 @@ import 'bootstrap/dist/css/bootstrap.css';
 import './App.css'
 
 
-export default function FormfieldsGrid() {
+export default function FormfieldsGrid(props) {
 
     const [totalcount, setTotalCount] = useState(0);
     const [formNotPresent, setFormNotPresent] = useState(0);
     const [captchaFound, setCaptchaFound] = useState(0);
     const [submitButtonNotFound, setSubmitButtonNotFound] = useState(0);
-    const [lessThanThreeFields, setLessThanThreeFields] = useState(0);
-    
+
     const gridRef = useRef();
 
     const getChildCount = useCallback(
@@ -66,7 +65,7 @@ export default function FormfieldsGrid() {
         getRows(params) {
             console.log(JSON.stringify(params.request, null, 1));
 
-            fetch('http://localhost:5000/getformfields', {
+            fetch('http://localhost:5000/getforms', {
                 method: 'post',
                 body: JSON.stringify(params.request),
                 headers: { "Content-Type": "application/json; charset=utf-8" }
@@ -89,13 +88,12 @@ export default function FormfieldsGrid() {
                 method: 'get',
                 headers: { "Content-Type": "application/json; charset=utf-8" }
             })
-            const response = await httpResponse.json()
-            console.log(response)
+            const response = await httpResponse.json() 
             setTotalCount(response.totalCount)
             setFormNotPresent(response.formsNotFound)
             setCaptchaFound(response.captchaPresent)
-            setSubmitButtonNotFound(response.SubmitButtonNotPresent)
-            setLessThanThreeFields(response.lessThanThreeFields)
+            // setSubmitButtonNotFound(response.SubmitButtonNotPresent)
+            // setLessThanThreeFields(response.lessThanThreeFields)
         } catch (error) {
             console.error(error)
         }
@@ -113,19 +111,30 @@ export default function FormfieldsGrid() {
         statistics()
     }, []);
 
+    const handleRowClick = async (event) => {
+
+        if (event.data && event.data.url) {
+            try {
+                console.log('row clicked for ', event.data.url)
+                const response = await fetch('http://localhost:5000' + '/getformfields?url=' + event.data.url, { method: 'Get' });
+                let jsondata = await response.json(); 
+                props.getFormFields([jsondata]);
+            } catch (err) {
+                console.log(err.message)
+            }
+
+        }
+    }
     const containerStyle = useMemo(() => ({ width: '100%', height: '100%' }), []);
 
     const gridOptions = {
 
         rowModelType: 'serverSide',
         columnDefs: [
-            { field: 'url', headerName: 'url', filter: 'agTextColumnFilter', width: 300, headerClass: 'custom-header-class', rowGroup: true, rowGroupIndex: 0 },
-            { field: 'captchaPresent', header: 'captchaPresent', filter: 'agTextColumnFilter', width: 200, headerClass: 'custom-header-class', },
-            { field: 'fieldname', header: 'fieldname', filter: 'agTextColumnFilter', width: 200, headerClass: 'custom-header-class', rowGroup: true, rowGroupIndex: 1 },
-            { field: 'fieldtagname', header: 'fieldtagname', filter: 'agTextColumnFilter', width: 200, headerClass: 'custom-header-class' },
-            { field: 'inputtype', headerName: 'inputtype', filter: 'agTextColumnFilter', width: 200, headerClass: 'custom-header-class' },
-            { field: 'dropdownoptions', headerName: 'dropdownoptions', filter: 'agTextColumnFilter', width: 300, headerClass: 'custom-header-class' },
-            { field: 'isrequired', headerName: 'isrequired', filter: 'agTextColumnFilter', width: 200, headerClass: 'custom-header-class' },
+            { headerName: "Row", valueGetter: "node.rowIndex + 1", pinned: 'left', width: 70},
+            { field: 'url', headerName: 'url', filter: 'agTextColumnFilter', width: 500, headerClass: 'custom-header-class' },
+            { field: 'form_count', header: 'form_count', filter: 'agTextColumnFilter', width: 200, headerClass: 'custom-header-class' },
+            { field: 'captcha', header: 'captcha', filter: 'agTextColumnFilter', width: 200, headerClass: 'custom-header-class' },
         ],
 
         defaultColDef: {
@@ -137,7 +146,7 @@ export default function FormfieldsGrid() {
             // rowDrag: true,
             enableValue: true,
             enableRowGroup: true,
-            // enablePivot: true,
+            enablePivot: true,
         },
 
         sideBar: sideBar,
@@ -145,7 +154,7 @@ export default function FormfieldsGrid() {
         rowSelection: 'multiple',
         columnHoverHighlight: true,
         suppressRowGroupHidesColumns: true,
-        pivotMode: true,
+        // pivotMode: true,
         autoGroupColumnDef: autoGroupColumnDef,
         getChildCount: getChildCount,
         popupParent: popupParent,
@@ -158,27 +167,27 @@ export default function FormfieldsGrid() {
     }
 
     return (
-        <div className="mt-1" >
-            <div className="d-flex justify-content-between">
-                <button type="button" className="btn btn-primary btn-sm" onClick={onRefresh}>Refresh Data</button>
+        <div className="mt-2" >
+            <div className="d-flex justify-content-between  mb-2">
+                <button type="button" onClick={onRefresh}>Refresh Data</button>
                 <div>
-                    <button type="button" className="btn btn-secondary btn-sm border border-info">total records: {totalcount}</button>
-                    <button type="button" className="btn btn-secondary btn-sm border border-info">forms not present: {formNotPresent}</button>
-                    <button type="button" className="btn btn-secondary btn-sm border border-info">captcha Forms : {captchaFound}</button>
-                    <button type="button" className="btn btn-secondary btn-sm border border-info">SubmitButton Not found : {submitButtonNotFound}</button>
-                    <button type="button" className="btn btn-secondary btn-sm border border-info">less than 3 fields : {lessThanThreeFields}</button>
+                    <button type="button" className="border border-info">total records: {totalcount}</button>
+                    <button type="button" className="border border-info">forms not present: {formNotPresent}</button>
+                    <button type="button" className="border border-info">captcha Forms : {captchaFound}</button>
+                    {/*<button type="button" className="border border-info">SubmitButton Not found : {submitButtonNotFound}</button>
+                     <button type="button" className="btn btn-secondary btn-sm border border-info">less than 3 fields : {lessThanThreeFields}</button> */}
                 </div>
             </div>
 
-            <div className="ag-theme-alpine" style={{ width: '100%', height: '90vh' }}>
-                {/* <button className='btn btn-sm' onClick={onBtReset}>Reset Entire Grid</button> */}
+            <div className="ag-theme-alpine" style={{ width: '100%', height: '42vh' }}>
                 <AgGridReact
                     gridOptions={gridOptions}
                     ref={gridRef}
                     onGridReady={onGridReady}
-                //autoGroupColumnDef={autoGroupColumnDef}
+                    onRowClicked={handleRowClick}
                 />
             </div>
+
         </div>
     )
 }

@@ -1,15 +1,19 @@
 
 module.exports = {
 
+    xpath_form: `//textarea/ancestor::form`,
+
     xpath_placeholders: `//*/input[contains(@placeholder,'')] | //*/textarea[contains(@placeholder,'')]`,
+
+    xpath_inputs: `//*/input`,
 
     xpath_labels: '//*/label',
 
     namelabelxpath: `
-//*/label[contains(text(),'name')] | 
-//*/label[contains(text(),'Name')] |
-//*/label//*[contains(text(),'name')] |
-//*/label//*[contains(text(),'Name')]`,
+    //*/label[contains(text(),'name')] | 
+    //*/label[contains(text(),'Name')] |
+    //*/label//*[contains(text(),'name')] |
+    //*/label//*[contains(text(),'Name')]`,
 
     autocompletenamexpath: `//*[@autocomplete='given-name']`,
 
@@ -232,17 +236,53 @@ module.exports = {
     dropdownxpath: `//*/select`,
 
     submitbuttonxpath: `
-    //*/form//button[contains(translate(text(), 'CONTACT', 'contact'),'contact') or contains(translate(text(), 'SUBMIT', 'submit'),'submit') or contains(translate(text(), 'SEND', 'send'),'send')] |
-    //*/input[translate(@type, 'SUBMIT', 'submit')='submit' and (contains(translate(@value, 'SUBMIT', 'submit'),'submit') or contains(translate(@value, 'SEND', 'send'),'send' ))] |
-    //*/button[contains(translate(text(), 'SEND', 'send'), 'send') or contains(translate(text(), 'SUBMIT', 'submit'), 'submit')] |
-    //*/button//*[contains(translate(text(), 'SEND', 'send'), 'send') or contains(translate(text(), 'SUBMIT', 'submit'), 'submit')]/ancestor::button |
-    //form//a//*[contains(translate(text(),'SEND','send'),'send') or contains(translate(text(), 'SUBMIT', 'submit'),'submit')] |
-    //form//a[contains(translate(text(),'SEND','send'),'send') or contains(translate(text(), 'SUBMIT', 'submit'),'submit')]
+    .//button[contains(translate(text(), 'CONTACT', 'contact'),'contact') or contains(translate(text(), 'SUBMIT', 'submit'),'submit') or contains(translate(text(), 'SEND', 'send'),'send') or contains(translate(text(), 'QUIRE', 'quire'),'quire')  or contains(translate(text(), 'REACH', 'reach'),'reach') or contains(translate(text(), 'TALK', 'talk'),'talk')] |
+    .//input[translate(@type, 'SUBMIT', 'submit')='submit' and (contains(translate(@value, 'SUBMIT', 'submit'),'submit') or contains(translate(@value, 'SEND', 'send'),'send' ))] |
+    .//input[translate(@type, 'BUTTON', 'button')='button' and (contains(translate(@value, 'SUBMIT', 'submit'),'submit') or contains(translate(@value, 'SEND', 'send'),'send' ))] |
+    .//button//*[contains(translate(text(), 'SEND', 'send'), 'send') or contains(translate(text(), 'SUBMIT', 'submit'), 'submit')]/ancestor::button |
+    .//a//*[contains(translate(text(), 'CONTACT', 'contact'),'contact') or contains(translate(text(), 'SUBMIT', 'submit'),'submit') or contains(translate(text(), 'SEND', 'send'),'send') or contains(translate(text(), 'QUIRE', 'quire'),'quire')  or contains(translate(text(), 'REACH', 'reach'),'reach') or contains(translate(text(), 'TALK', 'talk'),'talk')] |
+    .//a[contains(translate(text(), 'CONTACT', 'contact'),'contact') or contains(translate(text(), 'SUBMIT', 'submit'),'submit') or contains(translate(text(), 'SEND', 'send'),'send') or contains(translate(text(), 'QUIRE', 'quire'),'quire')  or contains(translate(text(), 'REACH', 'reach'),'reach') or contains(translate(text(), 'TALK', 'talk'),'talk')]
     `,
 
-    capchaxpath: `
-    //*/form//img[@alt='captcha'] | 
-//*/form//iframe[@title='reCAPTCHA'] | 
-//form//*[contains(text(),'reCAPTCHA')]`,
+    captchaxpath: `
+    .//*[contains(translate(@id, 'CAPTH', 'capth'), 'captcha') or contains(translate(@id, 'ROBT', 'robt'), 'robot') or contains(translate(@id, 'QUIZ', 'quiz'), 'quiz')] |
+    .//*[contains(translate(@class, 'CAPTH', 'capth'), 'captcha') or contains(translate(@class, 'ROBT', 'robt'), 'robot') or contains(translate(@class, 'QUIZ', 'quiz'), 'quiz')] |
+    .//*[contains(translate(@name, 'CAPTH', 'capth'), 'captcha') or contains(translate(@name, 'ROBT', 'robt'), 'robot') or contains(translate(@name, 'QUIZ', 'quiz'), 'quiz')] |
+    .//*[contains(translate(@src, 'CAPTH', 'capth'), 'captcha') or contains(translate(@src, 'ROBT', 'robt'), 'robot') or contains(translate(@src, 'QUIZ', 'quiz'), 'quiz')] |
+    .//*[contains(translate(@alt, 'CAPTH', 'capth'), 'captcha') or contains(translate(@alt, 'ROBT', 'robt'), 'robot') or contains(translate(@alt, 'QUIZ', 'quiz'), 'quiz')] |
+    .//*[contains(translate(@title, 'CAPTH', 'capth'), 'captcha') or contains(translate(@title, 'ROBT', 'robt'), 'robot') or contains(translate(@title, 'QUIZ', 'quiz'), 'quiz')] |
+    .//*[contains(translate(@value, 'CAPTH', 'capth'), 'captcha') or contains(translate(@value, 'ROBT', 'robt'), 'robot') or contains(translate(@value, 'QUIZ', 'quiz'), 'quiz')] |
+    .//*[contains(translate(text(), 'CAPTH', 'capth'), 'captcha') or contains(translate(text(), 'ROBT', 'robt'), 'robot') or contains(translate(text(), 'QUIZ', 'quiz'), 'quiz')]  
+  `,
+    // captchaxpath: `
+    // .//*[not(self::p) and (
+    // contains(translate(@id, 'CAPTH', 'capth'), 'captcha') or
+    // contains(translate(@id, 'ROBT', 'robt'), 'robot') or
+    // contains(translate(@id, 'QUIZ', 'quiz'), 'quiz') or
+    // contains(translate(@class, 'CAPTH', 'capth'), 'captcha') or
+    // contains(translate(@class, 'ROBT', 'robt'), 'robot') or
+    // contains(translate(@class, 'QUIZ', 'quiz'), 'quiz') or
+    // contains(translate(@name, 'CAPTH', 'capth'), 'captcha') or
+    // contains(translate(@name, 'ROBT', 'robt'), 'robot') or
+    // contains(translate(@name, 'QUIZ', 'quiz'), 'quiz') or
+    // contains(translate(@src, 'CAPTH', 'capth'), 'captcha') or
+    // contains(translate(@src, 'ROBT', 'robt'), 'robot') or
+    // contains(translate(@src, 'QUIZ', 'quiz'), 'quiz') or
+    // contains(translate(@alt, 'CAPTH', 'capth'), 'captcha') or
+    // contains(translate(@alt, 'ROBT', 'robt'), 'robot') or
+    // contains(translate(@alt, 'QUIZ', 'quiz'), 'quiz') or
+    // contains(translate(@title, 'CAPTH', 'capth'), 'captcha') or
+    // contains(translate(@title, 'ROBT', 'robt'), 'robot') or
+    // contains(translate(@title, 'QUIZ', 'quiz'), 'quiz') or
+    // contains(translate(@value, 'CAPTH', 'capth'), 'captcha') or
+    // contains(translate(@value, 'ROBT', 'robt'), 'robot') or
+    // contains(translate(@value, 'QUIZ', 'quiz'), 'quiz') or
+    // contains(translate(text(), 'CAPTH', 'capth'), 'captcha') or
+    // contains(translate(text(), 'ROBT', 'robt'), 'robot') or
+    // contains(translate(text(), 'QUIZ', 'quiz'), 'quiz'))]
+    // `,
 
+    xpath_popups: `
+        //*[contains(translate(@id, 'POU', 'pou' ),"popup") and contains(translate(@id, 'CLOSE', 'close'), "close")]
+        `
 }

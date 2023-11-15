@@ -36,21 +36,61 @@ async function scrollToBottom(page) {
   }));
 }
 
+async function handleCookiePopups(page, url, rules, autoconsent) {
+  const tab = autoconsent.attachToPage(page, url, rules, 10);
+  try {
+      await tab.checked;
+      await tab.doOptIn();
+  } catch (e) {
+      console.warn(`CMP error`);
+  }
+}
+
+async function handleDialog(dialog) {
+  console.log(dialog.message());
+  try {
+      await dialog.accept();
+  } catch {
+      try {
+          await dialog.dismiss();
+      } catch {
+          console.log('unable to accept or dismiss the dialog')
+      }
+  }
+}
+
+async function filterDataforDB(data) {
+  let dataForDB = { url: data.url, captcha: data.captchaFound, screenshot_name: data.screenshotname, form_count: data.formsData.length }
+  let forms = []
+  for (let form of data.formsData) {
+    let formData = { submitbuttonPresent: form.buttons.length > 0 }
+    const textfields = form.textfields.map(({ elementhandle, ...rest }) => rest)
+    const checkboxes = form.checkboxes.flat().map(({ elementhandle, ...rest }) => rest)
+    const radios = form.radiofields.flat().map(({ elementhandle, ...rest }) => rest)
+    const dropdowns = form.dropdowns.map(({ elementhandle, ...rest }) => rest)
+    formData.fields = [...textfields, ...checkboxes, ...radios, ...dropdowns];
+    forms.push(formData)
+  }
+  dataForDB.forms = forms
+  return dataForDB
+}
+
+
 async function insertDataToMysql(formData) {
 
-  let query = 'INSERT INTO contactforms (url, formfound, captchaPresent, submitButtonPresent) VALUES (?, ?, ?, ?)'
-  let values = [formData.url, formData.formfound, formData.captchaFound, formData.submitButtonFound]
+  let query = `
+  INSERT IGNORE INTO contactforms (url, form_count, captcha, screenshot_name) VALUES (?, ?, ?, ?)
+  ON DUPLICATE KEY UPDATE
+    form_count = VALUES(form_count),
+    captcha = VALUES(captcha),
+    screenshot_name = VALUES(screenshot_name);`
+  let values = [formData.url, formData.form_count, formData.captcha, formData.screenshot_name]
 
   try {
     const [rows, fields] = await pool.execute(query, values);
-    const formId = rows.insertId;
-
-    await insertDataInFormFieldsTable(formId, formData.textInputs)
-    await insertDataInFormFieldsTable(formId, formData.radioButtons)
-    await insertDataInFormFieldsTable(formId, formData.checkboxes)
-    await insertDataInFormFieldsTable(formId, formData.dropdowns)
-
-    console.log(`Inserted contactform with ID ${formId} and related formfields.`);
+    let domainId = rows.insertId;
+    await insertDataInFormFieldsTable(domainId, formData.forms, formData.url)
+    console.log(`Inserted contactform with ID ${domainId} and related formfields.`);
   } catch (error) {
     console.error('Error:', error);
   } finally {
@@ -58,16 +98,44 @@ async function insertDataToMysql(formData) {
   }
 }
 
-async function insertDataInFormFieldsTable(formId, formfields) {
-  console.log(formfields)
-  let query = 'INSERT INTO formfields (formid, fieldid, fieldname, fieldtagname, fieldnameattr, inputtype, isrequired, dropdownoptions, identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
-  formfields.forEach(async field => {
-    try{
-      let values = [formId, field.fieldId, field.fieldName, field.fieldTagname, field.fieldnameattr, field.inputType, field.isrequired, field.options, field.result]
-      await pool.execute(query, values);
-    }catch{
-      console.log('unable to add field to database: ', field.fieldName )
-    }
-  });
+async function insertDataInFormFieldsTable(domainId, forms, url) {
+  let deletequery = `
+  DELETE FROM hrefkeywords.formfields
+  WHERE domain_id IN (
+    SELECT id
+    FROM hrefkeywords.contactforms
+    WHERE url = '${url}'
+  );`
+  let getdomainIdquery = `select id from contactforms where url='${url}'`
+  const [rows, fields] = await pool.execute(getdomainIdquery)
+  await pool.execute(deletequery);
+  domainId = domainId == 0 ? rows[0].id : domainId
+
+  let form_number = 1;
+  for (let form of forms) {
+    
+    let insertquery = `INSERT INTO formfields (domain_id, form_number, field_number, field_name, isrequired, identity) 
+    VALUES (?, ?, ?, ?, ?, ?);`
+
+    let field_number = 1
+    form.fields.forEach(async field => {
+
+      try {
+        let values = [domainId, form_number, field_number, field.label, field.isrequired, field.identity]
+        await pool.execute(insertquery, values);
+        // console.log('added new row to domainID ',domainId )
+      } catch {
+        console.log('unable to add field to database: ', field.label)
+      } finally {
+        field_number++
+      }
+    });
+    form_number++
+  }
+
 }
-module.exports = { delay, addhttps, scrollToBottom, insertDataToMysql }
+
+function print(content){
+  console.log(content)
+}
+module.exports = { print, delay, addhttps, scrollToBottom, handleDialog, handleCookiePopups, filterDataforDB, insertDataToMysql }

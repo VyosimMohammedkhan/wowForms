@@ -61,13 +61,7 @@ function createSelectSql(request) {
         return ' select ' + colsToSelect.join(', ');
     }
 
-    return ` select c.url,
-    c.captchaPresent,
-    f.fieldname,
-    f.fieldtagname,
-    f.inputtype,
-    f.dropdownoptions,
-    f.isrequired `;
+    return ` select * `;
 }
 
 function createFilterSql(key, item) {

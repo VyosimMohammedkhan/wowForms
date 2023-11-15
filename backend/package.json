@@ -19,6 +19,8 @@
     "get-xpath": "^3.1.0",
     "mysql": "^2.18.1",
     "puppeteer": "^21.0.3",
+    "puppeteer-autoscroll-down": "^1.1.2",
+    "puppeteer-cmp-clicker": "^1.0.3",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-block-resources": "^2.4.3",
     "puppeteer-extra-plugin-stealth": "^2.11.2"

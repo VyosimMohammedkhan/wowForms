@@ -1,106 +1,73 @@
-const { Cluster } = require('puppeteer-cluster');
-//const createCsvWriter = require('csv-writer').createObjectCsvWriter;
-//const fs = require('fs');
-
-const urls = require("./urls.js").urls
-const screenshotpath = `/home/dell/Documents/Mohammed Backup/mainfolder/playground/wowAutoforms/frontend/src/images/`
-const { isformpresent, identifySubmitButtons, isCaptchaPresent, findVisibleFields, fillFormFields, submitForm, categorizeFields, findFormframe } = require("./form_functions.js")
-const { delay, addhttps, scrollToBottom, insertDataToMysql } = require("./work_functions.js")
 const puppeteer = require('puppeteer');
-const { PuppeteerBlocker } = require('@cliqz/adblocker-puppeteer');
 const fetch = require('cross-fetch');
+const { Cluster } = require('puppeteer-cluster');
+const { PuppeteerBlocker } = require('@cliqz/adblocker-puppeteer');
+const { scrollPageToBottom } = require('puppeteer-autoscroll-down')
+const { isCaptchaPresent, fillTextInputs, submitForm, findFormframe, getFormElements, getFieldsFromForm, identifyFormFields, handlePopupWidgets, confirmSubmitStatus } = require("./form_functions.js")
+const { print, delay, addhttps, handleDialog, handleCookiePopups, filterDataforDB, insertDataToMysql } = require("./work_functions.js")
 const autoconsent = require('@duckduckgo/autoconsent/dist/autoconsent.puppet.js');
 const extraRules = require('@duckduckgo/autoconsent/rules/rules.json');
 const consentomatic = extraRules.consentomatic;
+
+const xpaths = require('./xpaths.js');
+const urls = require("./urls.js").urls
+const screenshotpath = `/home/dell/Documents/Mohammed Backup/mainfolder/playground/wowAutoforms/frontend/src/images/`
 const rules = [
     ...autoconsent.rules,
     ...Object.keys(consentomatic).map(name => new autoconsent.ConsentOMaticCMP(`com_${name}`, consentomatic[name])),
     ...extraRules.autoconsent.map(spec => autoconsent.createAutoCMP(spec)),
 ];
+const pupClusOptions = {
+    concurrency: Cluster.CONCURRENCY_CONTEXT,
+    maxConcurrency: 2,
+    timeout: 1000 * 1000,
+    puppeteerOptions: {
+        headless: false,
+        defaultViewport: null,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--fast-start',
+            '--disable-extensions',
+            '--start-maximized',
+            '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4182.0 Safari/537.36'
+        ]
+    }
+}
 
+//====================================================================================================================
 
 async function fillforms(urls, data) {
     let result = [];
-    const blocker = await PuppeteerBlocker.fromLists(fetch, [
-        'https://secure.fanboy.co.nz/fanboy-cookiemonster.txt'
-    ]);
-
-    const cluster = await Cluster.launch({
-        concurrency: Cluster.CONCURRENCY_CONTEXT,
-        maxConcurrency: 5,
-        timeout: 1000 * 1000,
-        puppeteerOptions: {
-            headless: false,
-            defaultViewport: null,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--fast-start',
-                '--disable-extensions',
-                '--start-maximized',
-                '--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4182.0 Safari/537.36'
-            ]
-        }
-    });
+    const blocker = await PuppeteerBlocker.fromLists(fetch, ['https://secure.fanboy.co.nz/fanboy-cookiemonster.txt']);
+    const cluster = await Cluster.launch(pupClusOptions);
 
     await cluster.task(async ({ page, data: url }) => {
         await blocker.enableBlockingInPage(page);
         let screenshotname = new URL(url).hostname
         let formDetails = {}
+        let dataForDB = {}
 
         try {
-            formDetails.url = url;
-            page.once('load', async () => {
-                const tab = autoconsent.attachToPage(page, url, rules, 10);
-                try {
-                    await tab.checked;
-                    await tab.doOptIn();
-                } catch (e) {
-                    console.warn(`CMP error`);
-                }
-            });
-
-            page.on('dialog', async dialog => {
-                console.log(dialog.message());
-                try {
-                    await dialog.accept();
-                } catch {
-                    try {
-                        await dialog.dismiss();
-                    } catch {
-                        console.log('unable to accept or dismiss the dialog')
-                    }
-                }
-            })
+            formDetails = { url, screenshotname };
+            page.once('load', () => handleCookiePopups(page, url, rules, autoconsent));
+            page.on('dialog', async (dialog) => await handleDialog(dialog))
 
             await page.goto(url, { waitUntil: 'networkidle2' });
             await page.waitForXPath('//*/body')
-            await scrollToBottom(page)
-            await delay(5000)
+            await scrollPageToBottom(page, { size: 100, delay: 100 })
 
-            formDetails.formfound = await isformpresent(page)
-            formDetails.captchaFound = await isCaptchaPresent(page)
-            formDetails.screenshot = screenshotname;
+            await handlePopupWidgets(page)
+            // await delay(5000)
 
-            if (formDetails.formfound) {
-                await handleForm(page, page, formDetails, data, screenshotname)
-            } else {
-                console.log("form not found in mainframe")
-                await delay(3* 1000)
-                let possibleformframes = await findFormframe(page, url)
-                for (let frame of possibleformframes) {
-                    formDetails.formfound = await isformpresent(frame)
-                    if (formDetails.formfound)
-                        await handleForm(page, frame, formDetails, data, screenshotname)
-                }
-
-            }
-
+            formDetails.formsData = await handleForm(page, data, formDetails)
+            dataForDB = await filterDataforDB(formDetails)
+            console.log(dataForDB)
+            await insertDataToMysql(dataForDB)
         } catch (err) {
             console.log(err)
-            formDetails.Complete = false
         } finally {
-            result.push(formDetails)
+            result.push(dataForDB)
         }
 
     });
@@ -117,58 +84,101 @@ async function fillforms(urls, data) {
 }
 
 
-async function handleForm(page, frame, formDetails, data, screenshotname) {
 
-    let identifiedSubmitButtons = await identifySubmitButtons(frame)
-    formDetails.submitButtonFound = identifiedSubmitButtons.submitButtonPresent
-    formDetails.submitButtonData = identifiedSubmitButtons.submitButtonList
+//=======================================================================================================================
 
-    const formFields = await findVisibleFields(frame)
-    const [textInputs, radioButtons, checkboxes, dropdowns] = await categorizeFields(formFields)
 
-    formDetails.radioButtons = radioButtons;
-    formDetails.textInputs = textInputs
-    formDetails.checkboxes = checkboxes;
-    formDetails.dropdowns = dropdowns;
+async function handleForm(page, data, formDetails) {
+    let enableSubmit = false
+    let formsData = []
+    let formData = {}
+    let url = formDetails.url
+    let screenshotname = formDetails.screenshotname
+    let formElements = await getFormElements(page)
 
-    await delay(3000)
-    await fillFormFields(page, frame, formDetails, data)
+    const possibleformframes = await findFormframe(page, url)
+    for (let frame of possibleformframes) {
+        if (formElements.length > 0) break;
+        formElements = await getFormElements(frame)
+    }
+
+    if (formElements.length > 0) {
+        formDetails.captchaFound = await isCaptchaPresent(formElements)
+
+        for (let element of formElements) {
+
+            formData = await identifyFormFields(await getFieldsFromForm(page, element))
+            await fillTextInputs(page, formData.textfields, data)
+            await delay(1000)
+
+            if (!formDetails.captchaFound && enableSubmit) {
+                await submitForm(formData.buttons)
+                formData.submit_status = await confirmSubmitStatus(page, element, url, formData.textfields[0], data)
+            } else {
+                formData.submit_status = "NA"
+            }
+
+            console.log('submitStatus for ', url, ' :', formData.submit_status)
+            formsData.push(formData)
+        }
+
+
+    } else {
+
+    }
+
     await page.screenshot({ type: 'jpeg', path: `${screenshotpath}${screenshotname}before.jpeg`, fullPage: true });
-    await delay(1000)
-    // await submitForm(page, identifiedSubmitButtons.submitButtonList)
-    // await delay(10000)
-    // await delay(2000 * 1000)
-    // await page.screenshot({ type:'jpeg', path:`${screenshotpath}${screenshotname}after.jpeg`, fullPage: true });
-    // console.log(formDetails)
-    formDetails.Complete = true
-    await insertDataToMysql(formDetails)
+    await delay(1 * 1000)
+    return formsData
 }
 
 
-//======================================================= Execution ===================================================
 
+//======================================================= Execution ===================================================
+// const data = []
 // fillforms(
 //     [
-//         "https://knowink.com/contact-us/",
+//         // "https://www.hireheronow.com/contact"
+//         // "https://knowink.com/contact-us/",
 //         // "wowleads.com",
 //         // "allteamcapital.com/contact.html", 
-//         // "https://airtable.com/appRJcNfg1eOUYDYJ/shrNijI5rwOHuNod3"
+//         // "http://theophany.com/#contact%20us",
+//         "https://www.cfastaffing.com/contact/",
+//         "https://www.cinqtechstaffing.com/contact",
+//         "https://www.citygospelmission.org/about-us/contact-us/",
+//         "https://www.cloudstaffingpro.com/find-a-job/",
+//         "https://www.cmpersonnel.com/contact/",
+//         "https://www.co-staff.com/#contact-info",
+//         "https://www.coastjobs.com/contact/",
+//         "https://www.cohesionllc.com/contact",
+//         "https://www.communicationscollaborative.com/contact/",
+//         "https://www.compass-sys.com/contact-us/",
+//         "https://www.connectionstrainingandstaffing.com/contact/",
+
 //     ],
+//     // [],
+//     // urls,
 //     {
-//         phone : '1234567890',
-//         email:'myemail@gmail.com',
-//         firstname:'myfirstname',
-//         lastname:'mylastname',
-//         company:'vyosim techlabs',
-//         message:'this is a test message',
-//         subject:'testing form autofilling',
-//         website:'vyosim.com',
-//         zip:'12345',
-//         address:'myaddress',
-//         city:'mycity',
-//         state:'mystate',
-//         country:'mycountry',
-//         fullname:'myfullname',
+//         phone: '8291342205',
+//         email: 'mkkhan0936@gmail.com',
+//         firstname: 'Mohammed',
+//         lastname: 'khanna',
+//         company: 'khannaservices enterprises',
+//         subject: 'aprreciation',
+//         website: 'khannaenterprises.com',
+//         zip: '400061',
+//         address: 'Andheri',
+//         city: 'Mumbai',
+//         state: 'Maharashtra',
+//         country: 'India',
+//         fullname: 'Mohammed',
+//         message200: 'Hi, you did a good job with the website design. Keep it up!!!!',
+//         message400: 'Hi, you did a good job with the website design. Keep it up!!!!',
+//         message1000: 'Hi, you did a good job with the website design. Keep it up!!!!',
+//         messageNoLimit: 'Hi, you did a good job with the website design. Keep it up!!!!',
+//         roleTitle: 'marketing associate',
+//         bestTimeToRespond: 'immediately',
+//         unidentified: '123'
 //     })
 
 module.exports = { fillforms }

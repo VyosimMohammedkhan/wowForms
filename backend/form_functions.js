@@ -1,73 +1,332 @@
-const { text } = require("express");
-const { delay } = require("./work_functions.js");
+const { delay, scrollToBottom } = require("./work_functions.js");
+const { scrollPageToBottom } = require('puppeteer-autoscroll-down')
 const xpaths = require("./xpaths.js")
 
-async function findVisibleFields(page) {
-    const labels = await getLabelsFromPage(page)
-    const placeholders = await getPlaceholders(page)
-
-    let fieldKeySet = new Set();
-    let fieldsInfoArray = []
-
-    for (let label of labels) {
-        let fieldName = await label.evaluate(labelElement => labelElement.textContent.replace(/\/n\/t/).trim());
-        const [fieldTagname, fieldId, fieldnameattr, fieldData_id] = await getFieldFromLabel(label)
-        let isVisible = await isFieldVisible(page, fieldId, fieldnameattr, fieldData_id)
-        let isInHeaderFooter = await isFieldInHeaderFooter(page, fieldId, fieldnameattr)
-        // console.log(fieldName, ' isvisible:', isVisible, ' headerfooter:', isInHeaderFooter, ' data-aid:', fieldData_id)
-
-        if (isVisible && !isInHeaderFooter && (!fieldName.trim() == '') && (!fieldName.match(/indicates/i)) && (!fieldTagname.trim() == '')) {
-            let fieldkey = JSON.stringify({ tagname: fieldTagname, id: fieldId, nameattr: fieldnameattr, fieldData_id: fieldData_id })
-            let fieldInfo = await getFieldDetails(page, isVisible, fieldName, fieldTagname, fieldId, fieldnameattr, fieldData_id)
-            fieldInfo.fieldFilled = false;
-            if (fieldInfo.inputType !== 'hidden' && !fieldKeySet.has(fieldkey)) {
-                fieldKeySet.add(fieldkey);
-                fieldsInfoArray.push(fieldInfo);
-            }
-        }
-    }
-
-    for (let placeholder of placeholders) {
-        const [fieldName, fieldTagname, fieldId, fieldnameattr, fieldData_id] = await getFieldFromPlaceholder(placeholder)
-        let isVisible = await isFieldVisible(page, fieldId, fieldnameattr, fieldData_id)
-        let isInHeaderFooter = await isFieldInHeaderFooter(page, fieldId, fieldnameattr)
-
-        // console.log('|fieldName:', fieldName, '|tag:', fieldTagname, '|id:', fieldId, '|name:', fieldnameattr, '|aid:', fieldData_id, '|visible', isVisible)
-        if (isVisible && !isInHeaderFooter && (!fieldName.trim() == '') && (!fieldName.match(/indicates/i)) && (!fieldTagname.trim() == '')) {
-            let fieldkey = JSON.stringify({ tagname: fieldTagname, id: fieldId, nameattr: fieldnameattr, fieldData_id: fieldData_id })
-            let fieldInfo = await getPlaceholderDetails(placeholder, fieldName, fieldTagname, fieldId, fieldnameattr, fieldData_id)
-            fieldInfo.fieldFilled = false;
-            if (fieldInfo.inputType !== 'hidden' && !fieldKeySet.has(fieldkey)) {
-                fieldKeySet.add(fieldkey);
-                fieldsInfoArray.push(fieldInfo);
-            }
-        }
-    }
-
-    console.log('fieldSet:', fieldKeySet)
-    return fieldsInfoArray
+const selectors = {
+    textfields: 'input:not([type="button"], [type="hidden"], [type="submit"], [type="radio"], [type="checkbox"], [type="reset"],  [type="file"]), textarea',
+    dropdowns: 'select',
+    radios: 'input[type="radio"]',
+    checkboxes: 'input[type="checkbox"]'
 }
 
-async function isFieldInHeaderFooter(page, id, name) {
+const fieldIdentities = {
+    phone: /mobile|phone|contact.*number|cell.*number/i,
+    email: /mail/i,
+    bestTimeToRespond: /time/i,
+    roleTitle: /role|title|position/i,
+    firstname: /(?=.*first.*)/i,
+    lastname: /(?=.*last.*)/i,
+    company: /(?!.*(mail|Address|type|state|city))(?=.*(company|Business|organization|firm|agency))/i,
+    website: /website|domain/i,
+    subject: /subject|topic/i,
+    zip: /zip|post/i,
+    address: /(?!.*(mail))(?=.*(address|location))/i,
+    city: /city/i,
+    state: /state/i,
+    country: /country/i,
+    fullname: /name/i,
+}
 
-    let FieldInHeaderFooter = await page.evaluate((id, name) => {
-        let fieldElement;
-        if (id) {
-            fieldElement = document.querySelector(`[id = '${id}']`);
-        } else if (name) {
-            fieldElement = document.querySelector(`[name = '${name}']`)
-        } else {
-            console.log('Field not found', id, ' ', name);
-            return false;
+async function handlePopupWidgets(page) {
+    let popups = await page.$x(xpaths.xpath_popups)
+    popups = await removeInvisibleFields(popups)
+    for (let popup of popups) {
+        try { await popup.click() } catch { console.log('unable to close popup') }
+    }
+
+}
+
+async function getFormElements(page) {
+    let formswithtextarea = await page.$x(xpaths.xpath_form)
+    formswithtextarea = await removeInvisibleFields(formswithtextarea)
+    return formswithtextarea;
+}
+
+async function getFieldsFromForm(page, form) {
+    await delay(2000)
+    const dropdowns = await identifyUngroupedFields(await removeInvisibleFields(await form.$$(selectors.dropdowns)))
+    await handleDropdowns(page, dropdowns)
+    const radiofields = await identifyGroupedFields(await groupFieldsByNameAttr(await removeInvisibleFields(await form.$$(selectors.radios))))
+    await handleRadiosAndCheckbox(radiofields)
+    const checkboxes = await identifyGroupedFields(await groupFieldsByNameAttr(await removeInvisibleFields(await form.$$(selectors.checkboxes))))
+    await handleRadiosAndCheckbox(checkboxes)
+
+    const textfields = await removeInvisibleFields(await form.$$(selectors.textfields));
+    const buttons = await removeInvisibleFields(await form.$x(xpaths.submitbuttonxpath));
+
+    return { textfields, checkboxes, radiofields, dropdowns, buttons }
+}
+
+async function removeInvisibleFields(fields) {
+    let visibleFields = []
+    for (let field of fields) {
+        if (await isFieldVisible(field))
+            visibleFields.push(field)
+    }
+    return visibleFields
+}
+
+async function isFieldVisible(element) {
+
+    let isElementVisible = false;
+    // const fieldid = await element.evaluate(e => e.classList)
+    const tagName = await element.evaluate(e => e.tagName)
+    const fieldheight = await element.evaluate(e => e.getBoundingClientRect().height)
+    const fieldwidth = await element.evaluate(e => e.offsetWidth)
+    const ariaHiddenAttribute = await element.evaluate(e => e.getAttribute('hidden'));
+    const hiddenAttribute = await element.evaluate(e => e.getAttribute('aria-hidden'));
+    const disabledAttribute = await element.evaluate(e => e.getAttribute('disabled'));
+    const { display, opacity, visibility } = await element.evaluate(e => {
+        const computedStyle = window.getComputedStyle(e)
+        const display = computedStyle.getPropertyValue('display');
+        const opacity = parseFloat(computedStyle.getPropertyValue('opacity'));
+        const visibility = computedStyle.getPropertyValue('visibility');
+        return { display, opacity, visibility };
+    });
+    // console.log('id',fieldid)
+    // console.log('fieldheight', fieldheight)
+    // console.log('fieldwidth', fieldwidth)
+    // console.log('hiddenAttribute', hiddenAttribute)
+    // console.log('disabledAttribute', disabledAttribute)
+    // console.log('display', display)
+    // console.log('opacity', opacity)
+    // console.log('visibility', visibility)
+    if (
+        (display && display !== 'none') &&
+        (opacity && opacity > 0) &&
+        (visibility && visibility !== 'hidden') &&
+        (fieldwidth > 0) &&
+        (fieldheight > 0 || tagName == 'FORM') &&//added tagName condition to pass Forms that have height=0 
+        !hiddenAttribute &&
+        (!ariaHiddenAttribute || ariaHiddenAttribute !== 'true') &&
+        !disabledAttribute
+    ) {
+        isElementVisible = true;
+    }
+
+    if (isElementVisible) {
+        let invisibleAncestors = await element.$x(`./ancestor::*[contains(translate(@style, 'DISPLAYNOE', 'displaynoe'), 'display: none')]`);
+        if (invisibleAncestors.length > 0) {
+            isElementVisible = false
+        }
+    }
+
+    return isElementVisible;
+}
+
+async function identifyFormFields(form) {
+    form.textfields = await identifyUngroupedFields(form.textfields)
+    return form
+}
+
+async function identifyUngroupedFields(fields) {
+    let identfiedfields = []
+    for (let field of fields) {
+        const [tagName, fieldName, Id, nameattr, value, inputType, data_aid] = await getFieldDetails(field)
+        const identity = await getFieldIdentity(field, tagName, fieldName, Id, nameattr, value, data_aid, inputType)
+        const isrequired = await isFieldRequired(field)
+
+        field = { elementhandle: field, label: fieldName }
+        field.identity = identity
+        field.isrequired = isrequired
+        identfiedfields.push(field)
+    }
+    return identfiedfields
+}
+
+async function identifyGroupedFields(fields) {
+    let identifiedfieldgroups = []
+    for (let group of fields) {
+        let fieldsgroup = []
+        for (let field of group) {
+            if (!field.groupname) {
+                const [tagName, fieldName, Id, nameattr, value, inputType, data_aid] = await getFieldDetails(field)
+                const isrequired = await isFieldRequired(field)
+                const identity = await getFieldIdentity(field, tagName, fieldName, Id, nameattr, value, data_aid, inputType)
+                field = { elementhandle: field, label: fieldName, identity: identity, isrequired: isrequired }
+                fieldsgroup.push(field)
+            }
+        }
+        identifiedfieldgroups.push(fieldsgroup)
+    }
+    return identifiedfieldgroups
+}
+
+async function getFieldDetails(field) {
+    const fieldName = await getFieldName(field);
+
+    const { tagName, Id, nameattr, value, inputType, data_aid } = await field.evaluate(f => {
+        const Id = f.id
+        const nameattr = f.name
+        const inputType = f.getAttribute('type')
+        const data_aid = f.getAttribute('data-aid')
+        const tagName = f.tagName
+        const value = f.value
+        return { tagName, Id, nameattr, value, inputType, data_aid }
+    })
+
+    return [tagName, fieldName, Id, nameattr, value, inputType, data_aid]
+}
+
+async function getFieldName(field) {
+
+    let fieldName = await field.evaluate((field) => {
+        let tempElement = field;
+        while ((tempElement = tempElement.previousElementSibling)) {
+            if (tempElement.tagName == 'LABEL') {
+                return tempElement.textContent
+            }
         }
 
-        const header = document.querySelector('header');
-        const footer = document.querySelector('footer');
+        tempElement = field;
+        while ((tempElement = tempElement.nextElementSibling)) {
+            if (tempElement.tagName == 'LABEL') {
+                return tempElement.textContent
+            }
+        }
 
-        return (
-            (header && header.contains(fieldElement)) || (footer && footer.contains(fieldElement))
-        );
-    }, id, name)
+        tempElement = field;
+        while ((tempElement = tempElement.previousElementSibling)) {
+            let siblingdescendants = tempElement.querySelectorAll('*')
+            if (siblingdescendants) {
+                for (let descendant of siblingdescendants) {
+                    if (descendant.tagName == 'LABEL') {
+                        return descendant.textContent
+                    }
+                }
+            }
+        }
+
+        const descendants = field.querySelectorAll('*');
+        if (descendants) {
+            for (let descendant of descendants) {
+                if (descendant.tagName == 'LABEL') {
+                    return descendant.textContent
+                }
+            }
+        }
+
+        tempElement = field.parentNode
+        while ((tempElement = tempElement.previousElementSibling)) {
+            if (tempElement.tagName == 'LABEL') {
+                return tempElement.textContent
+            }
+            const descendants = tempElement.querySelectorAll('*');
+            if (descendants) {
+                for (let descendant of descendants) {
+                    if (descendant.tagName == 'LABEL') {
+                        return descendant.textContent
+                    }
+                }
+            }
+        }
+
+        return null
+    });
+
+    if (!fieldName) {
+        fieldName = await field.evaluate(f => f.placeholder)
+    }
+
+    if (!fieldName) {
+        const labelancestor = await field.$x('./ancestor::label')
+        if (labelancestor > 0)
+            fieldName = await labelancestor.evaluate(label => label.textContent)
+    }
+
+    if (!fieldName) {
+        const legendText = await field.evaluate((field) => {
+            const fieldset = field.closest('fieldset');
+            if (fieldset) {
+                const legendText = fieldset.querySelector('legend')?.textContent;
+                return legendText
+            }
+            return null
+        })
+        fieldName = legendText
+    }
+
+    if (!fieldName) {
+        const value = await field.evaluate(field => field.value)
+        if (value?.trim() !== '')
+            fieldName = value
+    }
+
+    if (!fieldName) {
+        const ancestorP = await field.$x('./ancestor::p');
+        const ancestorForm = await field.$x('./ancestor::form');
+
+        if (ancestorP.length > 0) {
+            fieldName = await ancestorP[0].evaluate(p => p.textContent);
+        } else if (ancestorForm.length > 0) {
+            fieldName = await getTextContent(ancestorForm[0])
+        }
+    }
+
+    return fieldName?.trim();
+}
+
+async function getTextContent(element) {
+    const textcontent = await element.evaluate((element) => {
+        let elementText = element.textContent
+
+        const childNodes = element.childNodes;
+        for (const childNode of childNodes) {
+            let childText = childNode.textContent
+            elementText = elementText.replace(childText, '')
+        }
+        return elementText;
+    });
+
+    return textcontent.trim();
+}
+
+async function getFieldIdentity(field, tagName, fieldName, id, nameattr, value, data_aid, inputType) {
+
+    if (tagName == 'SELECT')
+        return 'dropdown'
+    if (inputType?.includes("tel"))
+        return 'phone'
+    if (inputType?.includes('email'))
+        return 'email'
+    if (inputType == 'radio')
+        return 'radio'
+    if (inputType == 'checkbox')
+        return 'checkbox'
+    for (const [identity, regex] of Object.entries(fieldIdentities)) {
+        if (id?.match(regex) ||
+            nameattr?.match(regex) ||
+            fieldName?.match(regex) ||
+            value?.match(regex) ||
+            data_aid?.match(regex)) {
+            return identity
+        }
+    }
+    if (tagName == 'TEXTAREA') {
+        const maxlength = await field.evaluate(field => field.maxlength)
+        if (maxlength == undefined)
+            return 'messageNoLimit'
+        if (maxlength < 400)
+            return 'message200'
+        if (maxlength < 1000)
+            return 'messahe400'
+        if (maxlength >= 1000)
+            return 'message1000'
+    }
+
+    return 'unidentified'
+}
+
+
+async function isFieldInHeaderFooter(field) {
+
+    let FieldInHeaderFooter = await field.evaluate(field => {
+        const header = field.closest('header');
+        const footer = field.closest('footer');
+        if (header || footer)
+            return true
+        return false
+    })
 
     return FieldInHeaderFooter
 
@@ -76,50 +335,30 @@ async function isFieldInHeaderFooter(page, id, name) {
 async function isformpresent(page) {
     let textarea = await page.$x(`//*/textarea`)
     let visibleTextAreas = await textarea.map(async (element) => {
-        let details = await element.evaluate(e => { return { id: e.id, name: e.name, data_id :e.getAttribute('data-aid') } })
+        let details = await element.evaluate(e => { return { id: e.id, name: e.name, data_id: e.getAttribute('data-aid') } })
         let textareaVisible = await isFieldVisible(page, details.id, details.name, details.data_id)
         if (textareaVisible)
             return element
     })
 
-    return textarea.length > 0 ? true : false
+    return visibleTextAreas.length > 0 ? true : false
 }
 
-async function identifySubmitButtons(page) {
-    let submitbutton = await page.$x(xpaths.submitbuttonxpath)
-    let submitButtonList = []
-    for (let button of submitbutton) {
-        let buttonData = await button.evaluate(button => {
-            return {
-                buttonText: button.textContent.replace(/\/n\/t/).trim(),
-                buttonTagname: button.tagName,
-                buttonId: button.id,
-                buttonclass: button.className
-            }
-        })
-        submitButtonList.push(buttonData)
-    }
+async function submitForm(submitbuttons) {
 
-
-    // is it better to store id and class and of the first button and use that or is it better to use same xpath again ???
-    return submitbutton.length > 0 ? { submitButtonPresent: true, submitButtonList } : { submitButtonPresent: false, submitButtonList }
-}
-
-async function submitForm(page, submitButtons) {
-
-    for (let button of submitButtons) {
-        if (button.buttonId) {
-            await page.evaluate((id) => {
-                const field = document.getElementById(id);
-                field.scrollIntoView({ behavior: "smooth", block: "center" });
-            }, button.buttonId)
+    for (const button of submitbuttons) {
+        try {
+            await button.evaluate(button => button.scrollIntoView({ behavior: 'smooth', block: 'center' }));
             await delay(1000)
-            await page.click(`#${button.buttonId}`)
+            await button.click();
+            //should we break here ?
+        } catch (error) {
+            console.log('Error:', error);
         }
     }
-    // let submitbutton = await page.$x(xpaths.submitbuttonxpath)
-    // await submitbutton[0].scrollIntoView({ behavior: "smooth", block: "center" });
-    // await submitbutton[0].click()
+
+    await delay(1000);
+
 }
 
 // async function submitForm(page) {
@@ -149,446 +388,48 @@ async function submitForm(page, submitButtons) {
 //     }
 // }
 
-async function isCaptchaPresent(page) {
-    let captcha = await page.$x(xpaths.capchaxpath)
-    return captcha.length > 0 ? true : false
+async function isCaptchaPresent(forms) {
+    let captchas = []
+    for (let form of forms) {
+        let captcha = await form.$x(xpaths.captchaxpath)
+        captcha = await removeInvisibleFields(captcha)
+        captchas = captchas.concat(captcha)
+    }
+    return captchas.length > 0 ? true : false
 }
 
-async function getLabelsFromPage(page) {
-    let labels = await page.$x(xpaths.xpath_labels)
-    return labels
-}
+async function isFieldRequired(field) {
 
-async function getPlaceholders(page) {
-    let elementsWithPlaceholders = await page.$x(xpaths.xpath_placeholders)
-    return elementsWithPlaceholders
-}
-
-async function getFieldFromLabel(label) {
-
-    const [fieldTagname, fieldId, fieldnameattr, fieldData_id] = await label.evaluate((labelElement) => {
-
-        const requiredTags = ['SELECT', 'INPUT', 'TEXTAREA']
-
-        let tempElement = labelElement;
-        while ((tempElement = tempElement.nextElementSibling)) {
-            if (requiredTags.includes(tempElement.tagName)) {
-                return [tempElement.tagName, tempElement.id, tempElement.name, tempElement.getAttribute('data-aid')]
-            }
-        }
-
-        tempElement = labelElement;
-        while ((tempElement = tempElement.previousElementSibling)) {
-            if (requiredTags.includes(tempElement.tagName)) {
-                return [tempElement.tagName, tempElement.id, tempElement.name, tempElement.getAttribute('data-aid')]
-            }
-        }
-
-        const siblingdescendants = labelElement.nextElementSibling?.querySelectorAll('*')
-        if (siblingdescendants) {
-            for (let descendant of siblingdescendants) {
-                if (requiredTags.includes(descendant.tagName)) {
-                    return [descendant.tagName, descendant.id, descendant.name, tempElement.getAttribute('data-aid')]
-                }
-            }
-        }
-
-        const descendants = labelElement.querySelectorAll('*');
-        if (descendants) {
-            for (let descendant of descendants) {
-                if (requiredTags.includes(descendant.tagName)) {
-                    return [descendant.tagName, descendant.id, descendant.name, tempElement.getAttribute('data-aid')]
-                }
-            }
-        }
-
-        return ['', '', '', '']
-
-    });
-
-    return [fieldTagname, fieldId, fieldnameattr, fieldData_id]
-}
-
-async function isFieldRequired(page, id, name) {
-
-    const isRequired = await page.evaluate((id, name) => {
-
-        let fieldElement;
-
-        if (id) {
-            fieldElement = document.querySelector(`[id = '${id}']`);
-        } else if (name) {
-            fieldElement = document.querySelector(`[name = '${name}']`)
-        } else {
-            console.log('Field not found for isRequired', id, ' ', name);
-            return false;
-        }
-
-        if (fieldElement && fieldElement.hasAttribute('required') || fieldElement.classList.contains('required')) {
-            return true;
-        }
-
-        if (fieldElement && fieldElement.getAttribute('aria-required') === 'true') {
+    const isRequired = await field.evaluate(field => {
+        if (field.hasAttribute('required') ||
+            field.classList.contains('required') ||
+            field.getAttribute('aria-required') === 'true') {
             return true;
         }
         return false;
-    }, id, name);
+    });
 
     return isRequired;
 }
 
-async function getInputType(page, id, name) {
 
-    const inputType = await page.evaluate((id, name) => {
-        if (id) {
-            let fieldElement = document.querySelector(`[id = '${id}']`);
-            return fieldElement.getAttribute('type')
-        }
-        if (name) {
-            let fieldElement = document.querySelector(`[name = '${name}']`)
-            return fieldElement.getAttribute('type')
-        }
-        console.log('Field not found', id, ' ', name);
-        return '';
+async function getSelectOptions(field) {
 
-    }, id, name);
-
-    return inputType ? inputType : ''
-}
-
-async function isFieldVisible(page, id, name, data_aid) {
-
-    let isFieldVisible = await page.evaluate((id, name, data_aid) => {
-        let fieldElement;
-        if(data_aid){
-            fieldElement = document.querySelector(`[data-aid = '${data_aid}']`);
-        }else if (id) {
-            fieldElement = document.querySelector(`[id = '${id}']`);
-        } else if (name) {
-            fieldElement = document.querySelector(`[name = '${name}']`)
-        } else {
-            console.log('Field not found', id, ' ', name);
-            return false;
-        }
-
-        const computedStyle = window.getComputedStyle(fieldElement);
-        const fieldheight = fieldElement.offsetHeight
-        const fieldwidth = fieldElement.offsetWidth
-        const display = computedStyle.getPropertyValue('display');
-        const opacity = parseFloat(computedStyle.getPropertyValue('opacity'));
-        const visibility = computedStyle.getPropertyValue('visibility');
-        const hiddenAttribute = fieldElement.getAttribute('hidden');
-        const disabledAttribute = fieldElement.getAttribute('disabled');
-
-        // console.log(id, ' height ', fieldheight, ' width ', fieldwidth, 'display ', display, 'opacity ', opacity, 'visibility', visibility, 'hiddenAttribute ', hiddenAttribute, 'disabledAttribute ', disabledAttribute)
-
-        if (
-            (display && display !== 'none') &&
-            (opacity && opacity > 0) &&
-            (visibility && visibility !== 'hidden') &&
-            (fieldwidth > 0) &&
-            (fieldheight > 0) &&
-            !hiddenAttribute &&
-            !disabledAttribute
-        ) {
-            return true;
-        }
-
-        return false;
-    }, id, name, data_aid);
- 
-    if (isFieldVisible) {
-        let invisibleAncestors = await page.$x(`//*[@id='${id}']//ancestor::*[contains(@style,'display: none')]`)
-        if (invisibleAncestors.length > 0) {
-            isFieldVisible = false
-        }
-    }
-    return isFieldVisible;
-}
-
-async function getSelectOptions(page, id, name) {
-    const selectOptions = await page.evaluate((id, name) => {
-        let fieldElement;
-
-        if (id) {
-            fieldElement = document.querySelector(`[id = '${id}']`);
-        } else if (name) {
-            fieldElement = document.querySelector(`[name = '${name}']`)
-        } else {
-            console.log('Field not found', id, ' ', name);
-            return '';
-        }
-        const options = Array.from(fieldElement.options);
+    const selectOptions = await field.evaluate(field => {
+        const options = Array.from(field.options);
         return options.map(option => option.textContent).join(',');
-
-    }, id, name);
+    });
 
     return selectOptions
 }
 
-async function getFieldDetails(page, isVisible, fieldName, fieldTagname, fieldId, fieldnameattr, fieldData_id) {
 
-    let options = fieldTagname?.includes('SELECT') ? await getSelectOptions(page, fieldId, fieldnameattr) : ''
-    let isrequired = await isFieldRequired(page, fieldId, fieldnameattr)
-    let inputType = await getInputType(page, fieldId, fieldnameattr)
-    let fieldInfo = { fieldId, fieldnameattr, fieldName, fieldTagname, inputType, isrequired, options, fieldData_id }
-    return fieldInfo
-
-}
-
-async function isPlaceholderElementRequired(placeholderElement) {
-    let isrequired = placeholderElement.evaluate(element => {
-        if (element.hasAttribute('required') ||
-            element.classList.contains('required') ||
-            element.matches('[aria-required="true"]')) {
-            return true;
-        }
-        return false;
-    })
-
-    return isrequired
-}
-
-async function getFieldFromPlaceholder(placeholder) {
-    let fieldName = await placeholder.evaluate(element => element.placeholder.replace(/\/n\/t/gi, '').trim());
-    let fieldTagname = await placeholder.evaluate(element => element.tagName)
-    let fieldId = await placeholder.evaluate(element => element.id)
-    let fieldnameattr = await placeholder.evaluate(element => element.name)
-    let fieldData_id = await placeholder.evaluate(element => element.getAttribute('data-aid'))
-
-    return [fieldName, fieldTagname, fieldId, fieldnameattr, fieldData_id]
-}
-
-async function getPlaceholderDetails(placeholder, fieldName, fieldTagname, fieldId, fieldnameattr, fieldData_id) {
-    let inputType = fieldTagname.includes('INPUT') ? await placeholder.evaluate(element => element.getAttribute('type')) : ''
-    let isrequired = await isPlaceholderElementRequired(placeholder)
-    let fieldInfo = { fieldId, fieldnameattr, fieldName, fieldTagname, inputType, isrequired, options: '', fieldData_id }
-    return fieldInfo
-}
-
-
-async function fillIfFieldIsMessage(page, frame, fieldDetails, data) {
-
-    if (fieldDetails.fieldTagname == 'TEXTAREA') {
-        fieldDetails.fieldFilled = true
-        fieldDetails.result = "field is Message"
-        await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, data.message)
-        return true
-    }
-    return false
-}
-
-async function fillIfFieldIsSubject(page, frame, fieldDetails, data) {
-
-    if (fieldDetails.fieldId.match(/subject/i) ||
-        fieldDetails.fieldnameattr.match(/subject/i) ||
-        fieldDetails.fieldName.match(/subject/i)) {
-        fieldDetails.fieldFilled = true
-        fieldDetails.result = "field is subject"
-        await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, data.subject)
-        return true
-    }
-    return false
-}
-
-async function fillIfFieldIsWebsite(page, frame, fieldDetails, data) {
-    if (!fieldDetails.inputType.includes('checkbox') && !fieldDetails.inputType.includes('radio')) {
-        if (fieldDetails.fieldId.match(/website|domain/i) ||
-            fieldDetails.fieldnameattr.match(/website|domain/i) ||
-            fieldDetails.fieldName.match(/website|domain/i)) {
-            fieldDetails.fieldFilled = true
-            fieldDetails.result = "field is website"
-            await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, data.website)
-            return true
-        }
-    }
-    return false
-}
-
-async function fillIfFieldIsEmail(page, frame, fieldDetails, data) {
-
-    if (fieldDetails.inputType.includes("email") ||
-        fieldDetails.fieldId?.toLowerCase().includes("mail") ||
-        fieldDetails.fieldnameattr?.toLowerCase().includes("mail") ||
-        fieldDetails.fieldName.toLowerCase().includes("mail")) {
-        fieldDetails.fieldFilled = true
-        fieldDetails.result = "field is email"
-        await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, data.email)
-        return true
-    }
-    return false
-}
-
-async function fillIfFieldIsContactNumber(page, frame, fieldDetails, data) {
-
-    if (fieldDetails.inputType?.includes("tel") ||
-        fieldDetails.fieldId.match(/mobile|phone|contact.*number|cell.*number/i) ||
-        fieldDetails.fieldnameattr.match(/mobile|phone|contact.*number|cell.*number/i) ||
-        fieldDetails.fieldName.match(/mobile|phone|contact.*number|cell.*number/i)) {
-        fieldDetails.fieldFilled = true
-        fieldDetails.result = "field is contact number"
-        await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, (data.phone).toString())
-        return true
-    }
-    return false
-}
-
-async function fillIfFieldIsFirstName(page, frame, fieldDetails, data) {
-
-    if (fieldDetails.inputType.includes("text")) {
-        if (
-            fieldDetails.fieldId.match(/(?=.*first.*)/i) ||
-            fieldDetails.fieldnameattr.match(/(?=.*first.*)/i) ||
-            fieldDetails.fieldName.match(/(?=.*first.*)/i)) {
-            fieldDetails.fieldFilled = true
-            fieldDetails.result = "field is first name"
-            await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, data.firstname)
-            return true
-        }
-    }
-    return false
-}
-
-async function fillIfFieldIsLastName(page, frame, fieldDetails, data) {
-
-    if (fieldDetails.inputType.includes("text")) {
-        if (
-            fieldDetails.fieldId.match(/(?=.*last.*)/i) ||
-            fieldDetails.fieldnameattr.match(/(?=.*last.*)/i) ||
-            fieldDetails.fieldName.match(/(?=.*last.*)/i)) {
-            fieldDetails.fieldFilled = true
-            fieldDetails.result = "field is last name"
-            await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, data.lastname)
-            return true
-        }
-    }
-    return false
-}
-
-async function fillIfFieldIsCompanyName(page, frame, fieldDetails, data) {
-
-    if (fieldDetails.inputType.includes("text")) {
-        if (
-            fieldDetails.fieldId.match(/(?!.*(mail|Address|type|state|city))(?=.*(company|Business|organization|firm|agency))/i) ||
-            fieldDetails.fieldnameattr.match(/(?!.*(mail|Address|type|state|city))(?=.*(company|Business|organization|firm|agency))/i) ||
-            fieldDetails.fieldName.match(/(?!.*(mail|Address|type|state|city))(?=.*(company|Business|organization|firm|agency))/i)) {
-            fieldDetails.fieldFilled = true
-            fieldDetails.result = "field is company name"
-            await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, data.company)
-            return true
-        }
-    }
-    return false
-}
-
-async function fillIfFieldIsFullName(page, frame, fieldDetails, data) {
-    if (fieldDetails.fieldFilled == false && fieldDetails.inputType.includes("text")) {
-        if (
-            fieldDetails.fieldId.match(/name/i) ||
-            fieldDetails.fieldnameattr.match(/name/i) ||
-            fieldDetails.fieldName.match(/name/i)) {
-            fieldDetails.fieldFilled = true
-            fieldDetails.result = "field is full name"
-            await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, data.fullname)
-            return true
-        }
-    }
-    return false
-}
-
-async function fillIfFieldIsAddress(page, frame, fieldDetails, data) {
-
-    if (fieldDetails.inputType.includes("text")) {
-        if (
-            fieldDetails.fieldId.match(/(?!.*(mail))(?=.*(address|location))/i) ||
-            fieldDetails.fieldnameattr.match(/(?!.*(mail))(?=.*(address|location))/i) ||
-            fieldDetails.fieldName.match(/(?!.*(mail))(?=.*(address|location))/i)) {
-            fieldDetails.fieldFilled = true
-            fieldDetails.result = "field is address"
-            await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, data.address)
-            return true
-        }
-    }
-    return false
-}
-
-async function fillIfFieldIsZip(page, frame, fieldDetails, data) {
-
-    if (fieldDetails.inputType.includes("text")) {
-        if (
-            fieldDetails.fieldId.match(/zip|post/i) ||
-            fieldDetails.fieldnameattr.match(/zip|post/i) ||
-            fieldDetails.fieldName.match(/zip|post/i)) {
-            fieldDetails.fieldFilled = true
-            fieldDetails.result = "field is zip code"
-            await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, (data.zip).toString())
-            return true
-        }
-    }
-    return false
-}
-
-async function fillIfFieldIsCity(page, frame, fieldDetails, data) {
-
-    if (fieldDetails.inputType.includes("text")) {
-        if (
-            fieldDetails.fieldId.match(/city/i) ||
-            fieldDetails.fieldnameattr.match(/city/i) ||
-            fieldDetails.fieldName.match(/city/i)) {
-            fieldDetails.fieldFilled = true
-            fieldDetails.result = "field is city name"
-            await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, data.city)
-            return true
-        }
-    }
-    return false
-}
-
-async function fillIfFieldIsState(page, frame, fieldDetails, data) {
-
-    if (fieldDetails.inputType.includes("text")) {
-        if (
-            fieldDetails.fieldId.match(/state/i) ||
-            fieldDetails.fieldnameattr.match(/state/i) ||
-            fieldDetails.fieldName.match(/state/i)) {
-            fieldDetails.fieldFilled = true
-            fieldDetails.result = "field is state name"
-            await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, data.state)
-            return true
-        }
-    }
-    return false
-}
-
-async function fillIfFieldIsCountry(page, frame, fieldDetails, data) {
-
-    if (fieldDetails.inputType.includes("text")) {
-        if (
-            fieldDetails.fieldId.match(/country/i) ||
-            fieldDetails.fieldnameattr.match(/country/i) ||
-            fieldDetails.fieldName.match(/country/i)) {
-            fieldDetails.fieldFilled = true
-            fieldDetails.result = "field is country name"
-            await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, data.country)
-            return true
-        }
-    }
-    return false
-}
-
-async function fillIfFieldIsUnidentified(page, frame, fieldDetails, data) {
-    fieldDetails.fieldFilled = true
-    fieldDetails.result = "unidentified field"
-    await fillDatainField(page, frame, fieldDetails.fieldId, fieldDetails.fieldnameattr, fieldDetails.fieldData_id, '1234567890')
-    return true
-}
-
-async function handleDropdowns(page, frame, dropdowns) {
+async function handleDropdowns(page, dropdowns) {
     for (let dropdown of dropdowns) {
         // if (dropdown.isrequired == true) {
         //let optionToSelect = ''
         //await selectDropdownOption(page, fieldDetails.fieldId, fieldDetails.fieldnameattr, optionToSelect)
-        await frame.click(`#${dropdown.fieldId}`);
+        await dropdown.elementhandle.click();
         delay(500)
         await page.keyboard.press('ArrowDown');
         delay(500)
@@ -597,145 +438,57 @@ async function handleDropdowns(page, frame, dropdowns) {
     }
 }
 
-async function handleRadiosAndCheckbox(page, frame, fieldGroups) {
+async function handleRadiosAndCheckbox(fieldGroups) {
     for (let fieldGroup of fieldGroups) {
-        let firstField = fieldGroup[0]
+        let firstField = fieldGroup[0].elementhandle
         // if (firstField.isrequired == true) {
-        if (firstField.fieldId) {
-            await page.evaluate((id) => {
-                const field = document.getElementById(id);
-                field.scrollIntoView({ behavior: "smooth", block: "center" });
-            }, firstField.fieldId)
-            await delay(1000)
-            await frame.click(`#${firstField.fieldId}`)
-        } else {
-            console.log('unable to find checkbox/radio button for group: ', firstRadioButton.fieldnameattr)
-        }
+        await firstField.evaluate((field) => {
+            field.scrollIntoView({ behavior: "smooth", block: "center" });
+        })
+        await delay(1000)
+        await firstField.click()
         // }
     }
 }
 
-async function handleTextInputs(page, frame, textFields, data) {
 
-    const fieldFillers = [
-        fillIfFieldIsContactNumber,
-        fillIfFieldIsEmail,
-        fillIfFieldIsFirstName,
-        fillIfFieldIsLastName,
-        fillIfFieldIsCompanyName,
-        fillIfFieldIsMessage,
-        fillIfFieldIsSubject,
-        fillIfFieldIsWebsite,
-        fillIfFieldIsZip,
-        fillIfFieldIsAddress,
-        fillIfFieldIsCity,
-        fillIfFieldIsState,
-        fillIfFieldIsCountry,
-        fillIfFieldIsFullName,
-        fillIfFieldIsUnidentified
-    ];
+// async function fillFormFields(page, form, data) {
+//     await handleTextInputs(page, form.textfields, data)
+// }
 
-    for (let field of textFields) {
-        //if (field.isrequired == true) {
-        let done = false;
-        for (let fieldfiller of fieldFillers) {
-            done = await fieldfiller(page, frame, field, data);
-            if (done) break;
-        }
-        // }
-    }
-
-}
-
-
-async function fillFormFields(page, frame, formfields, data) {
-
-    await handleTextInputs(page, frame, formfields.textInputs, data)
-    await handleDropdowns(page, frame, formfields.dropdowns)
-    await handleRadiosAndCheckbox(page, frame, formfields.radioButtons)
-    await handleRadiosAndCheckbox(page, frame, formfields.checkboxes)
-
-}
-
-
-async function fillDatainField(page, frame, id, name, fieldData_id, data) {
-
-    if (fieldData_id) {
-        await frame.click(`[data-aid="${fieldData_id}"]`, { clickCount: 3 });
-        await page.keyboard.press('Backspace');
-        await frame.type(`[data-aid="${fieldData_id}"]`, data, { delay: 100 });
-    } else if (id) {
-        await frame.click(`[id="${id}"]`, { clickCount: 3 });
-        await page.keyboard.press('Backspace');
-        await frame.type(`[id="${id}"]`, data, { delay: 100 });
-    } else if (name) {
-        await frame.click(`[name="${name}"]`, { clickCount: 3 });
-        await page.keyboard.press('Backspace');
-        await frame.type(`[name="${name}"]`, data, { delay: 100 });
-    } else {
-        console.log('Field not found', id, ' ', name);
-    }
-
-}
-
-async function categorizeFields(fields) {
-
-    let dropdowns = []
-    let checkboxes = []
-    let textInputs = []
-    let radioButtons = []
-
+async function fillTextInputs(page, fields, data) {
     for (let field of fields) {
-        if (field.inputType == 'checkbox') {
-            field.result = 'field is checkbox'
-            checkboxes.push(field)
-        } else if (field.inputType == 'radio') {
-            field.result = 'field is radio'
-            radioButtons.push(field)
-        } else if (field.fieldTagname == 'SELECT') {
-            field.result = 'field is dropdown'
-            dropdowns.push(field)
-        } else {
-            textInputs.push(field)
-        }
+        let input = data[field.identity].toString()
+        await fillDatainField(page, field.elementhandle, input)
     }
-
-    checkboxes = groupFieldsByNameAttr(checkboxes)
-    radioButtons = groupFieldsByNameAttr(radioButtons)
-
-    return [textInputs, radioButtons, checkboxes, dropdowns]
 }
 
-function groupFieldsByNameAttr(fields) {
+async function fillDatainField(page, field, data) {
+    await field.evaluate(field => { field.scrollIntoView({ behavior: "smooth", block: "center" }) })
+    await field.click({ clickCount: 3 });
+    await page.keyboard.press('Backspace');
+    await delay(500)
+    await field.type(data, { delay: 100 });
+    await delay(500)
+}
+
+async function groupFieldsByNameAttr(fields) {
     const groupedFields = [];
-
     for (let field of fields) {
-        let fieldnameattr = field.fieldnameattr;
-        const rowIndex = groupedFields.findIndex((group) => group.length > 0 && group[0].fieldnameattr === fieldnameattr);
-
+        let fieldnameattr = await field.evaluate(field => field.name);
+        const rowIndex = groupedFields.findIndex((group) => group.length > 0 && group[0].groupname == fieldnameattr);
         if (rowIndex === -1) {
-            groupedFields.push([field]);
+            groupedFields.push([{ groupname: fieldnameattr }, field])
         } else {
             groupedFields[rowIndex].push(field);
         }
     };
-
     return groupedFields
 }
 
-async function selectDropdownOption(page, id, name, optionToSelect) {
+async function selectDropdownOption(dropdown, optionToSelect) {
+    await dropdown.select(optionToSelect);
 
-    let dropdownElement
-    if (id) {
-        dropdownElement = await page.$x(`//Select[@id=${id}]`);
-        await dropdownElement[0].select(optionToSelect);
-    } else if (name) {
-        dropdownElement = await page.$x(`//Select[@name=${name}]`);
-        await dropdownElement[0].select(optionToSelect);
-    } else {
-        console.log('Field not found', id, ' ', name);
-        return 'Field not found';
-    }
 }
 
 async function findFormframe(page, url) {
@@ -755,4 +508,49 @@ async function findFormframe(page, url) {
     return possibleformframes
 }
 
-module.exports = { isformpresent, identifySubmitButtons, isCaptchaPresent, findVisibleFields, fillFormFields, submitForm, categorizeFields, findFormframe }
+async function confirmSubmitStatus(page, form, url, fieldToCheck, data) {
+
+    await waitForNavigation(page)
+    for (let cycle = 0; cycle < 30; cycle++) {
+
+        const UrlChanged = await isUrlChange(page, url)
+        if (UrlChanged) {
+            return "Successful"
+        } else {
+            if (cycle == 0) await scrollPageToBottom(page, { size: 100, delay: 100 })
+            const formVisible = await isFieldVisible(form)
+            const formRefreshed = await isFormRefreshed(fieldToCheck, data)
+
+            if (!formVisible || formRefreshed) {
+                return "Successful"
+            }
+        }
+        await delay(1000)
+    }
+
+    return "Failed"
+}
+
+async function waitForNavigation(page) {
+    try {
+        await page.waitForNetworkIdle()
+    } catch {
+        console.log('waitForNavigationFailed')
+    }
+}
+
+async function isUrlChange(page, url) {
+    let currentUrl = await page.url()
+    return currentUrl.replaceAll('/', '') != url.replaceAll('/', '')
+}
+
+async function isFormRefreshed(fieldToCheck, data) {
+    const fieldInputData = data[fieldToCheck.identity]
+    const fieldValue = await fieldToCheck.elementhandle.evaluate(field => {
+        return field.value
+    })
+
+    return (fieldValue == '' || fieldValue != fieldInputData)
+}
+
+module.exports = { isformpresent, isCaptchaPresent, fillTextInputs, submitForm, findFormframe, getFormElements, getFieldsFromForm, identifyFormFields, handlePopupWidgets, confirmSubmitStatus }

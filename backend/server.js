@@ -2,14 +2,16 @@ const express = require("express");
 const cors = require('cors');
 const app = express();
 const getData = require('./aggridToMysql')
-const getStatistics = require('./getStatistics')
+const {getStatistics, getFormFields} = require('./getStatistics') 
 const { fillforms } = require('./formfiller')
 const PORT = process.env.PORT || 5000;
-const tablename = ` 
-FROM hrefkeywords.contactforms AS c
-INNER JOIN hrefkeywords.formfields AS f
-ON c.id = f.formid 
-`
+// const tablename = ` 
+// FROM hrefkeywords.contactforms AS c
+// INNER JOIN hrefkeywords.formfields AS f
+// ON c.id = f.formid 
+// `
+const tablename =`From hrefkeywords.contactforms`
+
 
 app.use(cors());
 app.use(express.json({ limit: "10mb", extended: true }))
@@ -23,7 +25,14 @@ app.get('/getstatistics', (req, res) => {
 
 });
 
-app.post('/getformfields', function (req, res) {
+app.get('/getformfields', (req, res) => {
+    getFormFields(req.query.url).then(fields => { 
+        res.json(fields);
+    })
+
+});
+
+app.post('/getforms', function (req, res) {
     getData(req.body, tablename, (rows, lastRow) => {
         res.json({
             rows: rows, lastRow: lastRow
@@ -34,7 +43,7 @@ app.post('/getformfields', function (req, res) {
 app.post('/fillform', async function (req, res) {
     const urls = (req.body.formurl).split(',')
     const formdata = JSON.parse(req.body.formdata)
-    let result = await fillforms(urls, formdata)
+    let result = await fillforms(urls, formdata) 
     res.json(result);
 });
 
