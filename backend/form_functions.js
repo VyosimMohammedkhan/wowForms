@@ -440,14 +440,12 @@ async function handleDropdowns(page, dropdowns) {
 
 async function handleRadiosAndCheckbox(fieldGroups) {
     for (let fieldGroup of fieldGroups) {
-        let firstField = fieldGroup[0].elementhandle
-        // if (firstField.isrequired == true) {
+        let firstField = fieldGroup[0].elementhandle 
         await firstField.evaluate((field) => {
             field.scrollIntoView({ behavior: "smooth", block: "center" });
         })
         await delay(1000)
-        await firstField.click()
-        // }
+        await firstField.click() 
     }
 }
 
@@ -488,7 +486,6 @@ async function groupFieldsByNameAttr(fields) {
 
 async function selectDropdownOption(dropdown, optionToSelect) {
     await dropdown.select(optionToSelect);
-
 }
 
 async function findFormframe(page, url) {
