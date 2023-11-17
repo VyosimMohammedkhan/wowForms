@@ -1,32 +1,39 @@
 const { delay, scrollToBottom } = require("./work_functions.js");
 const { scrollPageToBottom } = require('puppeteer-autoscroll-down')
-const xpaths = require("./xpaths.js")
-
+const xpaths = require("./xpaths.js");
+const { copy } = require("copy-paste");
+require("copy-paste").global()
+//=============================================================================================================
 const selectors = {
     textfields: 'input:not([type="button"], [type="hidden"], [type="submit"], [type="radio"], [type="checkbox"], [type="reset"],  [type="file"]), textarea',
     dropdowns: 'select',
     radios: 'input[type="radio"]',
-    checkboxes: 'input[type="checkbox"]'
+    checkboxes: 'input[type="checkbox"]',
+    fileinputs: 'input[type="file"]'
 }
 
 const fieldIdentities = {
-    phone: /mobile|phone|contact.*number|cell.*number/i,
+    phone: /mobile|phone|contact.*number|cell/i,
     email: /mail/i,
     bestTimeToRespond: /time/i,
+    date: /date/i,
     roleTitle: /role|title|position/i,
     firstname: /(?=.*first.*)/i,
+    middlename: /(?=.*middle.*)/i,
     lastname: /(?=.*last.*)/i,
-    company: /(?!.*(mail|Address|type|state|city))(?=.*(company|Business|organization|firm|agency))/i,
+    company: /(?!.*(mail|Address|type|state|city))(?=.*(company|Business|organization|firm|agency).*)/i,
     website: /website|domain/i,
     subject: /subject|topic/i,
     zip: /zip|post/i,
-    address: /(?!.*(mail))(?=.*(address|location))/i,
+    address: /(?!.*(mail))(?=.*(address|location).*)/i,
     city: /city/i,
     state: /state/i,
     country: /country/i,
     fullname: /name/i,
+    message200: /(?=.*(question|comment|describe|detail).*)/i
 }
 
+//=====================================================================================================================
 async function handlePopupWidgets(page) {
     let popups = await page.$x(xpaths.xpath_popups)
     popups = await removeInvisibleFields(popups)
@@ -51,6 +58,10 @@ async function getFieldsFromForm(page, form) {
     const checkboxes = await identifyGroupedFields(await groupFieldsByNameAttr(await removeInvisibleFields(await form.$$(selectors.checkboxes))))
     await handleRadiosAndCheckbox(checkboxes)
 
+
+    const fileinputs = await identifyUngroupedFields(await removeInvisibleFields(await form.$$(selectors.fileinputs)));
+    console.log(fileinputs)
+    await handleFileInputs(fileinputs)
     const textfields = await removeInvisibleFields(await form.$$(selectors.textfields));
     const buttons = await removeInvisibleFields(await form.$x(xpaths.submitbuttonxpath));
 
@@ -171,22 +182,15 @@ async function getFieldDetails(field) {
 async function getFieldName(field) {
 
     let fieldName = await field.evaluate((field) => {
+
+        //checking previous siblings of input and their descendants
         let tempElement = field;
         while ((tempElement = tempElement.previousElementSibling)) {
+
             if (tempElement.tagName == 'LABEL') {
                 return tempElement.textContent
             }
-        }
 
-        tempElement = field;
-        while ((tempElement = tempElement.nextElementSibling)) {
-            if (tempElement.tagName == 'LABEL') {
-                return tempElement.textContent
-            }
-        }
-
-        tempElement = field;
-        while ((tempElement = tempElement.previousElementSibling)) {
             let siblingdescendants = tempElement.querySelectorAll('*')
             if (siblingdescendants) {
                 for (let descendant of siblingdescendants) {
@@ -197,6 +201,15 @@ async function getFieldName(field) {
             }
         }
 
+        //checking next Siblings of input
+        tempElement = field;
+        while ((tempElement = tempElement.nextElementSibling)) {
+            if (tempElement.tagName == 'LABEL') {
+                return tempElement.textContent
+            }
+        }
+
+        //checking descendants of input
         const descendants = field.querySelectorAll('*');
         if (descendants) {
             for (let descendant of descendants) {
@@ -206,6 +219,7 @@ async function getFieldName(field) {
             }
         }
 
+        //checking previous siblings of parent of input
         tempElement = field.parentNode
         while ((tempElement = tempElement.previousElementSibling)) {
             if (tempElement.tagName == 'LABEL') {
@@ -224,16 +238,19 @@ async function getFieldName(field) {
         return null
     });
 
+    //checking placeholder..........should be first priority ????
     if (!fieldName) {
         fieldName = await field.evaluate(f => f.placeholder)
     }
 
+    //checking ancestors of input that are label
     if (!fieldName) {
         const labelancestor = await field.$x('./ancestor::label')
-        if (labelancestor > 0)
-            fieldName = await labelancestor.evaluate(label => label.textContent)
+        if (labelancestor.length > 0)
+            fieldName = await labelancestor[0].evaluate(label => label.textContent)
     }
 
+    //checking legend in case field is in fieldset
     if (!fieldName) {
         const legendText = await field.evaluate((field) => {
             const fieldset = field.closest('fieldset');
@@ -246,12 +263,14 @@ async function getFieldName(field) {
         fieldName = legendText
     }
 
+    //if value is given instead of placeholder. (don't be surprised. People actually do this)
     if (!fieldName) {
         const value = await field.evaluate(field => field.value)
         if (value?.trim() !== '')
             fieldName = value
     }
 
+    //if placeholder and label are not present and fieldname is in a p tag
     if (!fieldName) {
         const ancestorP = await field.$x('./ancestor::p');
         const ancestorForm = await field.$x('./ancestor::form');
@@ -282,26 +301,34 @@ async function getTextContent(element) {
 }
 
 async function getFieldIdentity(field, tagName, fieldName, id, nameattr, value, data_aid, inputType) {
-
+    // console.log(tagName, fieldName, id, nameattr, value, data_aid, inputType)
     if (tagName == 'SELECT')
         return 'dropdown'
-    if (inputType?.includes("tel"))
-        return 'phone'
-    if (inputType?.includes('email'))
-        return 'email'
-    if (inputType == 'radio')
-        return 'radio'
-    if (inputType == 'checkbox')
-        return 'checkbox'
-    for (const [identity, regex] of Object.entries(fieldIdentities)) {
-        if (id?.match(regex) ||
-            nameattr?.match(regex) ||
-            fieldName?.match(regex) ||
-            value?.match(regex) ||
-            data_aid?.match(regex)) {
-            return identity
+
+    if (tagName == 'INPUT') {
+        if (inputType?.includes("file"))
+            return 'fileinput'
+        if (inputType?.includes("tel"))
+            return 'phone'
+        if (inputType?.includes('email'))
+            return 'email'
+        if (inputType == 'radio')
+            return 'radio'
+        if (inputType == 'checkbox')
+            return 'checkbox'
+
+        for (const [identity, regex] of Object.entries(fieldIdentities)) {
+            if (id?.match(regex) ||
+                nameattr?.match(regex) ||
+                fieldName?.match(regex) ||
+                value?.match(regex) ||
+                data_aid?.match(regex)) {
+                return identity
+            }
         }
     }
+
+
     if (tagName == 'TEXTAREA') {
         const maxlength = await field.evaluate(field => field.maxlength)
         if (maxlength == undefined)
@@ -309,7 +336,7 @@ async function getFieldIdentity(field, tagName, fieldName, id, nameattr, value, 
         if (maxlength < 400)
             return 'message200'
         if (maxlength < 1000)
-            return 'messahe400'
+            return 'message400'
         if (maxlength >= 1000)
             return 'message1000'
     }
@@ -317,7 +344,7 @@ async function getFieldIdentity(field, tagName, fieldName, id, nameattr, value, 
     return 'unidentified'
 }
 
-
+//not using anymore as we decided to take forms in header and footer as well
 async function isFieldInHeaderFooter(field) {
 
     let FieldInHeaderFooter = await field.evaluate(field => {
@@ -351,7 +378,7 @@ async function submitForm(submitbuttons) {
             await button.evaluate(button => button.scrollIntoView({ behavior: 'smooth', block: 'center' }));
             await delay(1000)
             await button.click();
-            //should we break here ?
+            //should we break here ? probably. 
         } catch (error) {
             console.log('Error:', error);
         }
@@ -440,16 +467,20 @@ async function handleDropdowns(page, dropdowns) {
 
 async function handleRadiosAndCheckbox(fieldGroups) {
     for (let fieldGroup of fieldGroups) {
-        let firstField = fieldGroup[0].elementhandle 
+        let firstField = fieldGroup[0].elementhandle
         await firstField.evaluate((field) => {
             field.scrollIntoView({ behavior: "smooth", block: "center" });
         })
         await delay(1000)
-        await firstField.click() 
+        await firstField.click()
     }
 }
 
-
+async function handleFileInputs(fileInputs) {
+    for (let input of fileInputs) {
+        await input.elementhandle.uploadFile('./fileinput.pdf')
+    }
+}
 // async function fillFormFields(page, form, data) {
 //     await handleTextInputs(page, form.textfields, data)
 // }
@@ -457,11 +488,13 @@ async function handleRadiosAndCheckbox(fieldGroups) {
 async function fillTextInputs(page, fields, data) {
     for (let field of fields) {
         let input = data[field.identity].toString()
-        await fillDatainField(page, field.elementhandle, input)
+        console.log(field)
+        if (field.identity.startsWith('message')) await pasteIntoField(page, field.elementhandle, input)
+        else await typeDatainField(page, field.elementhandle, input)
     }
 }
 
-async function fillDatainField(page, field, data) {
+async function typeDatainField(page, field, data) {
     await field.evaluate(field => { field.scrollIntoView({ behavior: "smooth", block: "center" }) })
     await field.click({ clickCount: 3 });
     await page.keyboard.press('Backspace');
@@ -548,6 +581,18 @@ async function isFormRefreshed(fieldToCheck, data) {
     })
 
     return (fieldValue == '' || fieldValue != fieldInputData)
+}
+
+async function pasteIntoField(page, element, text) {
+
+    await copy(text)
+    await element.click()
+    await delay(500);
+    await page.keyboard.down('Control');
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('KeyV');
+    await page.keyboard.up('Control');
+    await page.keyboard.up('Shift');
 }
 
 module.exports = { isformpresent, isCaptchaPresent, fillTextInputs, submitForm, findFormframe, getFormElements, getFieldsFromForm, identifyFormFields, handlePopupWidgets, confirmSubmitStatus }

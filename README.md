@@ -1,0 +1,1 @@
+xclip must be installed for linux otherwise pasting into message area gives error

@@ -12,7 +12,7 @@ async function getFormFields(url) {
     from hrefkeywords.contactforms where url='${url}';
     `
     const fieldsquery = `
-    Select F.field_name, F.isrequired, F.identity, F.form_number
+    Select F.field_name, F.isrequired, F.identity, F.form_number, F.submit_status
     FROM
     hrefkeywords.contactforms C join hrefkeywords.formfields F on C.id=F.domain_id
     where url='${url}'
@@ -40,6 +40,7 @@ async function getFormFields(url) {
     let form_count = formsummary[0]?.form_count 
     let captcha = formsummary[0]?.captcha
     let screenshot_name = formsummary[0]?.screenshot_name
+    let submit_status = fields[0]?.submit_status
     fields = fields.map(field => {
         return {
             field_name: field?.field_name,
@@ -48,11 +49,13 @@ async function getFormFields(url) {
             form_number : field?.form_number
         };
     });
+
     let result = {
         url,
         form_count,
         captcha,
         screenshot_name,
+        submit_status,
         fields: fields
     }
 

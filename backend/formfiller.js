@@ -19,8 +19,8 @@ const rules = [
 ];
 const pupClusOptions = {
     concurrency: Cluster.CONCURRENCY_CONTEXT,
-    maxConcurrency: 2,
-    timeout: 1000 * 1000,
+    maxConcurrency: 1,
+    timeout: 120 * 1000,
     puppeteerOptions: {
         headless: false,
         defaultViewport: null,
@@ -37,18 +37,24 @@ const pupClusOptions = {
 
 //====================================================================================================================
 
-async function fillforms(urls, data) {
+async function fillforms(ws, urls, data, submitEnabled) {
+
+    let count = urls.length
+    let remaining = count
     let result = [];
     const blocker = await PuppeteerBlocker.fromLists(fetch, ['https://secure.fanboy.co.nz/fanboy-cookiemonster.txt']);
     const cluster = await Cluster.launch(pupClusOptions);
 
     await cluster.task(async ({ page, data: url }) => {
+        console.log(remaining, " forms remaining")
+        ws.send(JSON.stringify({ progress: (((count - remaining) / count) * 100).toFixed(2) }))
         await blocker.enableBlockingInPage(page);
         let screenshotname = new URL(url).hostname
         let formDetails = {}
         let dataForDB = {}
 
         try {
+            ws.send(JSON.stringify({ progressInfo: `navigating to ${url}` }))
             formDetails = { url, screenshotname };
             page.once('load', () => handleCookiePopups(page, url, rules, autoconsent));
             page.on('dialog', async (dialog) => await handleDialog(dialog))
@@ -56,18 +62,25 @@ async function fillforms(urls, data) {
             await page.goto(url, { waitUntil: 'networkidle2' });
             await page.waitForXPath('//*/body')
             await scrollPageToBottom(page, { size: 100, delay: 100 })
-
             await handlePopupWidgets(page)
-            // await delay(5000)
 
-            formDetails.formsData = await handleForm(page, data, formDetails)
+            ws.send(JSON.stringify({ progressInfo: `filling form on ${url}` }))
+            formDetails.formsData = await handleForm(page, data, formDetails, submitEnabled)
             dataForDB = await filterDataforDB(formDetails)
-            console.log(dataForDB)
+            console.log("datafordb", dataForDB)
+            ws.send(JSON.stringify({ progressInfo: `sending data to DB` }))
             await insertDataToMysql(dataForDB)
+            await delay(1000)
         } catch (err) {
             console.log(err)
+            ws.send(JSON.stringify({ progressInfo: `got error on ${url} : ${err.message}` }))
+            dataForDB = { url, captcha: false, screenshot_name:screenshotname, form_count: 0, forms: [] }
         } finally {
+            await ws.send(JSON.stringify(dataForDB))
+            console.log("datafordb", dataForDB)
             result.push(dataForDB)
+
+            remaining--
         }
 
     });
@@ -88,8 +101,7 @@ async function fillforms(urls, data) {
 //=======================================================================================================================
 
 
-async function handleForm(page, data, formDetails) {
-    let enableSubmit = false
+async function handleForm(page, data, formDetails, submitEnabled) {
     let formsData = []
     let formData = {}
     let url = formDetails.url
@@ -111,7 +123,7 @@ async function handleForm(page, data, formDetails) {
             await fillTextInputs(page, formData.textfields, data)
             await delay(1000)
 
-            if (!formDetails.captchaFound && enableSubmit) {
+            if (!formDetails.captchaFound && submitEnabled) {
                 await submitForm(formData.buttons)
                 formData.submit_status = await confirmSubmitStatus(page, element, url, formData.textfields[0], data)
             } else {
@@ -135,50 +147,28 @@ async function handleForm(page, data, formDetails) {
 
 
 //======================================================= Execution ===================================================
-// const data = []
-// fillforms(
-//     [
-//         // "https://www.hireheronow.com/contact"
-//         // "https://knowink.com/contact-us/",
-//         // "wowleads.com",
-//         // "allteamcapital.com/contact.html", 
-//         // "http://theophany.com/#contact%20us",
-//         "https://www.cfastaffing.com/contact/",
-//         "https://www.cinqtechstaffing.com/contact",
-//         "https://www.citygospelmission.org/about-us/contact-us/",
-//         "https://www.cloudstaffingpro.com/find-a-job/",
-//         "https://www.cmpersonnel.com/contact/",
-//         "https://www.co-staff.com/#contact-info",
-//         "https://www.coastjobs.com/contact/",
-//         "https://www.cohesionllc.com/contact",
-//         "https://www.communicationscollaborative.com/contact/",
-//         "https://www.compass-sys.com/contact-us/",
-//         "https://www.connectionstrainingandstaffing.com/contact/",
-
-//     ],
-//     // [],
-//     // urls,
-//     {
-//         phone: '8291342205',
-//         email: 'mkkhan0936@gmail.com',
-//         firstname: 'Mohammed',
-//         lastname: 'khanna',
-//         company: 'khannaservices enterprises',
-//         subject: 'aprreciation',
-//         website: 'khannaenterprises.com',
-//         zip: '400061',
-//         address: 'Andheri',
-//         city: 'Mumbai',
-//         state: 'Maharashtra',
-//         country: 'India',
-//         fullname: 'Mohammed',
-//         message200: 'Hi, you did a good job with the website design. Keep it up!!!!',
-//         message400: 'Hi, you did a good job with the website design. Keep it up!!!!',
-//         message1000: 'Hi, you did a good job with the website design. Keep it up!!!!',
-//         messageNoLimit: 'Hi, you did a good job with the website design. Keep it up!!!!',
-//         roleTitle: 'marketing associate',
-//         bestTimeToRespond: 'immediately',
-//         unidentified: '123'
-//     })
+const data = {
+    phone: '8291342205',
+    email: 'mkkhan0936@gmail.com',
+    firstname: 'Mohammed',
+    lastname: 'khanna',
+    company: 'khannaservices enterprises',
+    subject: 'aprreciation',
+    website: 'khannaenterprises.com',
+    zip: '400061',
+    address: 'Andheri',
+    city: 'Mumbai',
+    state: 'Maharashtra',
+    country: 'India',
+    fullname: 'Mohammed',
+    message200: 'Hi, you did a good job with the website design. Keep it up!!!!',
+    message400: 'Hi, you did a good job with the website design. Keep it up!!!!',
+    message1000: 'Hi, you did a good job with the website design. Keep it up!!!!',
+    messageNoLimit: 'Hi, you did a good job with the website design. Keep it up!!!!',
+    roleTitle: 'marketing associate',
+    bestTimeToRespond: 'immediately',
+    unidentified: '123'
+}
+// fillforms(ws, [], data, false)
 
 module.exports = { fillforms }

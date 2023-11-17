@@ -66,7 +66,7 @@ export default function FormfieldsGrid() {
         getRows(params) {
             console.log(JSON.stringify(params.request, null, 1));
 
-            fetch('http://localhost:5000/getformfields', {
+            fetch('http://20.20.1.13:5000/getformfields', {
                 method: 'post',
                 body: JSON.stringify(params.request),
                 headers: { "Content-Type": "application/json; charset=utf-8" }
@@ -85,7 +85,7 @@ export default function FormfieldsGrid() {
 
     const statistics = async () => {
         try {
-            const httpResponse = await fetch('http://localhost:5000/getstatistics', {
+            const httpResponse = await fetch('http://20.20.1.13:5000/getstatistics', {
                 method: 'get',
                 headers: { "Content-Type": "application/json; charset=utf-8" }
             })

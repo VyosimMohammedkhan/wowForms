@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef } from "react"
 import { AgGridReact } from 'ag-grid-react'
 import 'ag-grid-community/styles/ag-grid.css'
-import 'ag-grid-community/styles/ag-theme-alpine.css'
+import 'ag-grid-community/styles/ag-theme-balham.css'
 import 'ag-grid-enterprise'
 import 'bootstrap/dist/css/bootstrap.css';
 import './App.css'
@@ -133,7 +133,7 @@ export default function FormfieldsGrid(props) {
         columnDefs: [
             { headerName: "Row", valueGetter: "node.rowIndex + 1", pinned: 'left', width: 70},
             { field: 'url', headerName: 'url', filter: 'agTextColumnFilter', width: 500, headerClass: 'custom-header-class' },
-            { field: 'form_count', header: 'form_count', filter: 'agTextColumnFilter', width: 200, headerClass: 'custom-header-class' },
+            { field: 'form_count', header: 'form count', filter: 'agTextColumnFilter', width: 200, headerClass: 'custom-header-class' },
             { field: 'captcha', header: 'captcha', filter: 'agTextColumnFilter', width: 200, headerClass: 'custom-header-class' },
         ],
 
@@ -141,6 +141,7 @@ export default function FormfieldsGrid(props) {
             editable: true,
             sortable: true,
             filter: true,
+            floatingFilter:true,
             resizable: true,
             // floatingFilter: true,
             // rowDrag: true,
@@ -171,15 +172,15 @@ export default function FormfieldsGrid(props) {
             <div className="d-flex justify-content-between  mb-2">
                 <button type="button" onClick={onRefresh}>Refresh Data</button>
                 <div>
-                    <button type="button" className="border border-info">total records: {totalcount}</button>
-                    <button type="button" className="border border-info">forms not present: {formNotPresent}</button>
-                    <button type="button" className="border border-info">captcha Forms : {captchaFound}</button>
+                    <button type="button" className="border border-info mx-2">Total : {totalcount}</button>
+                    <button type="button" className="border border-info mx-2">Captcha : {captchaFound} ({Math.round((captchaFound/totalcount)*100)}%)</button>
+                    <button type="button" className="border border-info mx-2">No Forms in : {formNotPresent}</button>
                     {/*<button type="button" className="border border-info">SubmitButton Not found : {submitButtonNotFound}</button>
                      <button type="button" className="btn btn-secondary btn-sm border border-info">less than 3 fields : {lessThanThreeFields}</button> */}
                 </div>
             </div>
 
-            <div className="ag-theme-alpine" style={{ width: '100%', height: '42vh' }}>
+            <div className="ag-theme-balham" style={{ width: '100%', height: '42vh' }}>
                 <AgGridReact
                     gridOptions={gridOptions}
                     ref={gridRef}

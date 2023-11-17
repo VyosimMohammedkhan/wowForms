@@ -60,6 +60,7 @@ async function handleDialog(dialog) {
 }
 
 async function filterDataforDB(data) {
+ 
   let dataForDB = { url: data.url, captcha: data.captchaFound, screenshot_name: data.screenshotname, form_count: data.formsData.length }
   let forms = []
   for (let form of data.formsData) {
@@ -69,6 +70,7 @@ async function filterDataforDB(data) {
     const radios = form.radiofields.flat().map(({ elementhandle, ...rest }) => rest)
     const dropdowns = form.dropdowns.map(({ elementhandle, ...rest }) => rest)
     formData.fields = [...textfields, ...checkboxes, ...radios, ...dropdowns];
+    formData.submit_status = form.submit_status
     forms.push(formData)
   }
   dataForDB.forms = forms
@@ -114,14 +116,14 @@ async function insertDataInFormFieldsTable(domainId, forms, url) {
   let form_number = 1;
   for (let form of forms) {
     
-    let insertquery = `INSERT INTO formfields (domain_id, form_number, field_number, field_name, isrequired, identity) 
-    VALUES (?, ?, ?, ?, ?, ?);`
+    let insertquery = `INSERT INTO formfields (domain_id, form_number, field_number, field_name, isrequired, identity, submit_status) 
+    VALUES (?, ?, ?, ?, ?, ?, ?);`
 
     let field_number = 1
     form.fields.forEach(async field => {
 
       try {
-        let values = [domainId, form_number, field_number, field.label, field.isrequired, field.identity]
+        let values = [domainId, form_number, field_number, field.label, field.isrequired, field.identity, form.submit_status]
         await pool.execute(insertquery, values);
         // console.log('added new row to domainID ',domainId )
       } catch {
@@ -135,7 +137,18 @@ async function insertDataInFormFieldsTable(domainId, forms, url) {
 
 }
 
+
+function splitToArray(value){
+  let urlList = value.split(/\r?\n|\r|\t/);
+  urlList = urlList.flatMap(element => element.split(/[,|;]/));
+  urlList = urlList.flatMap(element => element.trim())
+  urlList = urlList.flatMap(element => element.split(' '))
+  urlList = urlList.filter(element => element)
+  urlList = [...new Set(urlList)]
+  return urlList
+}
+
 function print(content){
   console.log(content)
 }
-module.exports = { print, delay, addhttps, scrollToBottom, handleDialog, handleCookiePopups, filterDataforDB, insertDataToMysql }
+module.exports = { splitToArray, print, delay, addhttps, scrollToBottom, handleDialog, handleCookiePopups, filterDataforDB, insertDataToMysql }

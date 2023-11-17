@@ -185,50 +185,50 @@ module.exports = {
 //*/input[contains(@placeholder,"Address") and not(contains(translate(@placeholder, "EMAIL", "email"),"email"))]`,
 
     citylabelxpath: `
-//*/label[contains(text(),'City')] | 
-//*/label[contains(text(),'city')] | 
-//*/label//*[contains(text(),'City')] | 
-//*/label//*[contains(text(),'city')]`,
+    //*/label[contains(text(),'City')] | 
+    //*/label[contains(text(),'city')] | 
+    //*/label//*[contains(text(),'City')] | 
+    //*/label//*[contains(text(),'city')]`,
 
     cityfieldxpath: `
-//*/label[contains(text(),'city')]/following-sibling::input | 
-//*/label[contains(text(),'City')]/following-sibling::input | 
-//*/label[contains(text(),'city')]/following-sibling::*//input | 
-//*/label[contains(text(),'City')]/following-sibling::*//input | 
-//*/label[contains(text(),'city')]/preceding-sibling::input | 
-//*/label[contains(text(),'City')]/preceding-sibling::input | 
-//*/label//*[contains(text(),'city')]/parent::*/following-sibling::*/input | 
-//*/label//*[contains(text(),'City')]/parent::*/following-sibling::*//input |
-//*/label//*[contains(text(),'city')]/parent::*/parent::*/following-sibling::*//input |
-//*/label//*[contains(text(),'City')]/parent::*/parent::*/following-sibling::*//input`,
+    //*/label[contains(text(),'city')]/following-sibling::input | 
+    //*/label[contains(text(),'City')]/following-sibling::input | 
+    //*/label[contains(text(),'city')]/following-sibling::*//input | 
+    //*/label[contains(text(),'City')]/following-sibling::*//input | 
+    //*/label[contains(text(),'city')]/preceding-sibling::input | 
+    //*/label[contains(text(),'City')]/preceding-sibling::input | 
+    //*/label//*[contains(text(),'city')]/parent::*/following-sibling::*/input | 
+    //*/label//*[contains(text(),'City')]/parent::*/following-sibling::*//input |
+    //*/label//*[contains(text(),'city')]/parent::*/parent::*/following-sibling::*//input |
+    //*/label//*[contains(text(),'City')]/parent::*/parent::*/following-sibling::*//input`,
 
     cityplaceholderxpath: `
-//*/input[contains(@name,"city")] | 
-//*/input[contains(@name,"City")] | 
-//*/input[contains(@placeholder,"city")] |
-//*/input[contains(@placeholder,"City")]`,
+    //*/input[contains(@name,"city")] | 
+    //*/input[contains(@name,"City")] | 
+    //*/input[contains(@placeholder,"city")] |
+    //*/input[contains(@placeholder,"City")]`,
 
     statelabelxpath: `
-//*/label[contains(text(),'State')] | 
-//*/label[contains(text(),'state')] | 
-//*/label//*[contains(text(),'State')] | 
-//*/label//*[contains(text(),'state')]`,
+    //*/label[contains(text(),'State')] | 
+    //*/label[contains(text(),'state')] | 
+    //*/label//*[contains(text(),'State')] | 
+    //*/label//*[contains(text(),'state')]`,
 
     statefieldxpath: `
-//*/label[contains(text(),'state')]/following-sibling::input | 
-//*/label[contains(text(),'State')]/following-sibling::input | 
-//*/label[contains(text(),'state')]/following-sibling::*//input | 
-//*/label[contains(text(),'State')]/following-sibling::*//input | 
-//*/label[contains(text(),'state')]/preceding-sibling::input | 
-//*/label[contains(text(),'State')]/preceding-sibling::input | 
-//*/label//*[contains(text(),'state')]/parent::*/following-sibling::*/input | 
-//*/label//*[contains(text(),'State')]/parent::*/following-sibling::*//input |
-//*/label//*[contains(text(),'state')]/parent::*/parent::*/following-sibling::*//input |
-//*/label//*[contains(text(),'State')]/parent::*/parent::*/following-sibling::*//input`,
+    //*/label[contains(text(),'state')]/following-sibling::input | 
+    //*/label[contains(text(),'State')]/following-sibling::input | 
+    //*/label[contains(text(),'state')]/following-sibling::*//input | 
+    //*/label[contains(text(),'State')]/following-sibling::*//input | 
+    //*/label[contains(text(),'state')]/preceding-sibling::input | 
+    //*/label[contains(text(),'State')]/preceding-sibling::input | 
+    //*/label//*[contains(text(),'state')]/parent::*/following-sibling::*/input | 
+    //*/label//*[contains(text(),'State')]/parent::*/following-sibling::*//input |
+    //*/label//*[contains(text(),'state')]/parent::*/parent::*/following-sibling::*//input |
+    //*/label//*[contains(text(),'State')]/parent::*/parent::*/following-sibling::*//input`,
 
     stateplaceholderxpath: `
-//*/input[contains(translate(@name, "STAE", "stae"),"state") and not(@type="hidden")] |
-//*/input[contains(translate(@placeholder, "STAE", "stae"),"state")]
+    //*/input[contains(translate(@name, "STAE", "stae"),"state") and not(@type="hidden")] |
+    //*/input[contains(translate(@placeholder, "STAE", "stae"),"state")]
 `,
 
     messageTextareaxpath: `//*/textarea`,
@@ -243,7 +243,7 @@ module.exports = {
     .//a//*[contains(translate(text(), 'CONTACT', 'contact'),'contact') or contains(translate(text(), 'SUBMIT', 'submit'),'submit') or contains(translate(text(), 'SEND', 'send'),'send') or contains(translate(text(), 'QUIRE', 'quire'),'quire')  or contains(translate(text(), 'REACH', 'reach'),'reach') or contains(translate(text(), 'TALK', 'talk'),'talk')] |
     .//a[contains(translate(text(), 'CONTACT', 'contact'),'contact') or contains(translate(text(), 'SUBMIT', 'submit'),'submit') or contains(translate(text(), 'SEND', 'send'),'send') or contains(translate(text(), 'QUIRE', 'quire'),'quire')  or contains(translate(text(), 'REACH', 'reach'),'reach') or contains(translate(text(), 'TALK', 'talk'),'talk')]
     `,
-
+//need to add "inquire"/"enquire" as keyword for submitbutton
     captchaxpath: `
     .//*[contains(translate(@id, 'CAPTH', 'capth'), 'captcha') or contains(translate(@id, 'ROBT', 'robt'), 'robot') or contains(translate(@id, 'QUIZ', 'quiz'), 'quiz')] |
     .//*[contains(translate(@class, 'CAPTH', 'capth'), 'captcha') or contains(translate(@class, 'ROBT', 'robt'), 'robot') or contains(translate(@class, 'QUIZ', 'quiz'), 'quiz')] |
@@ -283,6 +283,6 @@ module.exports = {
     // `,
 
     xpath_popups: `
-        //*[contains(translate(@id, 'POU', 'pou' ),"popup") and contains(translate(@id, 'CLOSE', 'close'), "close")]
-        `
+    //*[contains(translate(@id, 'POU', 'pou' ),"popup") and contains(translate(@id, 'CLOSE', 'close'), "close")]
+    `
 }

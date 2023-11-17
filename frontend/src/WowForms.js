@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import React from "react"
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import Carousel from 'react-bootstrap/Carousel';
+import { ProgressBar } from "react-bootstrap";
 import FormfieldsGrid from './FormfieldsGrid';
 import 'bootstrap/dist/css/bootstrap.css';
 import axios from 'axios'
@@ -28,31 +29,51 @@ export default function FormsFiller() {
   const [messageNoLimit, setMessageNoLimit] = useState('Hi, you did a good job with the website design. Keep it up!!!!');
   const [roleTitle, setRoleTitle] = useState('Marketing Associate')
   const [bestTimeToRespond, setBestTimeToRespond] = useState('immediately')
+  const [date, setDate] = useState('10/10/2022')
   const [unidentified, setUnidentified] = useState(123)
+  const [submitEnabled, setSubmitEnabled] = useState(false)
+  const [processing, setProcessing] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [progressInfo, setProgressInfo] = useState("this is progress info")
   const [result, setResult] = useState([])
 
   const sendDataToBackend = async () => {
     setResult([])
+    setProcessing(true)
+    setProgress(0)
     try {
       let formdata = getformdata()
       let url = getformurl()
 
-      const request = {
-        url: `http://localhost:5000/fillform`,
-        method: 'POST',
-        data: {
-          formurl: url,
-          formdata: formdata
-        }
-      };
-      const urls = (await axios(request)).data.map(domain => domain.url)
+      const socket = new WebSocket('ws://localhost:5000/fillform');
 
-      urls.forEach(async domainurl => {
-        const response = await fetch('http://localhost:5000' + '/getformfields?url=' + domainurl, { method: 'Get' })
-        const jsondata = await response.json()
-        console.log('response :', jsondata)
-        setResult(prevdata => [...prevdata, jsondata])
-      })
+      socket.onopen = () => {
+        const data = { formurl: url, formdata: formdata, submitEnabled: submitEnabled }
+        socket.send(JSON.stringify(data));
+      }
+
+      socket.onmessage = async event => {
+        const data = (await JSON.parse(event.data))
+        if (data.url) {
+          console.log('getting data for :', data.url)
+          const response = await axios.get('http://localhost:5000/getformfields', { params: { url: data.url } })
+          const dbformdata = response.data
+          console.log('response :', dbformdata)
+          setResult(prevdata => [...prevdata, dbformdata])
+        }
+
+        if (data.progress)
+          setProgress(data.progress)
+
+        if (data.progressInfo)
+          setProgressInfo(data.progressInfo)
+      }
+
+      socket.onclose = event => {
+        setProcessing(false)
+      }
+
+
 
 
 
@@ -87,6 +108,7 @@ export default function FormsFiller() {
       messageNoLimit: messageNoLimit,
       roleTitle: roleTitle,
       bestTimeToRespond: bestTimeToRespond,
+      date: date,
       unidentified: unidentified
     }
 
@@ -97,6 +119,12 @@ export default function FormsFiller() {
     console.log('got data from child :', fields)
     setResult(fields)
   }
+
+  const handleSubmitState = () => {
+    console.log("previous:", submitEnabled)
+    setSubmitEnabled(!submitEnabled);
+    console.log("current:", submitEnabled)
+  };
 
   const handleFormUrl = (event) => {
     setContactFormurl(event.target.value);
@@ -173,12 +201,16 @@ export default function FormsFiller() {
     setMessageNoLimit(event.target.value);
   };
 
-  const handleRoleTitle =(event) =>{
+  const handleRoleTitle = (event) => {
     setRoleTitle(event.target.value)
   }
 
   const handleBestTimeToRespond = (event) => {
     setBestTimeToRespond(event.target.value)
+  }
+
+  const handleDate = (event) => {
+    setDate(event.target.value)
   }
 
   const handleUnidentified = (event) => {
@@ -202,7 +234,7 @@ export default function FormsFiller() {
                     alt={'screenshot for ' + form.screenshot_name}
                   />
                   <Carousel.Caption className="d-none d-md-block">
-                    <p>{form.screenshot_name}</p>
+                    <p style={{color:'black', backgroundColor:'whitesmoke'}}>{form.screenshot_name}</p>
                   </Carousel.Caption>
                 </TransformComponent>
               </TransformWrapper>
@@ -215,10 +247,11 @@ export default function FormsFiller() {
                 <TransformComponent>
                   <img
                     className="d-block w-100"
-                    alt={'screenshot not available for ' + form.screenshotname}
+                    src={require(`${path}notfound.jpeg`)}
+                    alt={'screenshot not available for selected domain'}
                   />
-                  <Carousel.Caption className="d-none d-md-block">
-                    <p>{form.screenshotname}</p>
+                   <Carousel.Caption className="d-none d-md-block">
+                    <p style={{color:'black', backgroundColor:'whitesmoke'}}>This page failed to load</p>
                   </Carousel.Caption>
                 </TransformComponent>
               </TransformWrapper>
@@ -234,24 +267,26 @@ export default function FormsFiller() {
     return (<tbody>
       {result.map((form, index) => {
         // if (form.Complete == true)
-        return (<><tr className="accordion-toggle collapsed"
+        return (<>
+        <tr className="accordion-toggle collapsed"
           key={index}
-          id="accordion1"
+          id={"accordion"+index}
           data-mdb-toggle="collapse"
-          data-mdb-parent="#accordion1"
-          href="#collapseOne"
-          aria-controls="collapseOne"
+          data-mdb-parent={"#accordion"+index}
+          href={"#collapseOne"+index}
+          aria-controls={"collapseOne"+index}
         >
           <td className="expand-button"></td>
-          <td>{form.url}</td>
-          <td>{form.form_count}</td>
-          <td>{form.captcha ? "YES" : "NO"}</td>
+          <td width={'100px'}>{form.url}</td>
+          <td>{form.captcha ? "Y" : "N"}</td>
+          <td>{form.fields.length > 1 ? "Successful" : "Failed"}</td>
+          <td>{form.submit_status}</td>
         </tr>
 
           <tr className="hide-table-padding">
             <td></td>
             <td colspan="3">
-              <div id="collapseOne" className="collapse in p-3">
+              <div id={"collapseOne"+index} className="collapse in p-3">
                 <div style={{ border: '1px ridge', borderRadius: '2%', padding: '2%' }}>
                   <div className="row" style={{ borderBottom: 'ridge' }}>
                     <div className="col-2">Form No.</div>
@@ -284,6 +319,7 @@ export default function FormsFiller() {
     <nav className="navbar navbar-expand-lg bg-body-tertiary">
       <div className="container-fluid text-center">
         <a className="navbar-brand" href="#">wowForms</a>
+
         <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
           <span className="navbar-toggler-icon"></span>
         </button>
@@ -304,15 +340,27 @@ export default function FormsFiller() {
         <div className='col-8' style={{ height: '75vh' }}>
           <div className='row h-50 '>
             <div className='col-4 overflow-auto border py-3 h-100'>
+              <div style={{ height: '3vh' }}>{processing ? (<>
+                <ProgressBar now={progress} label={`${progress}% completed`} animated />
+              </>) : (<>
+
+              </>)}
+              </div>
               <form id="myForm" action="#" method="post" autoComplete="off">
                 <div className='row'>
-                  <div className='col-6'><h3 className="title">Form Data</h3></div>
-                  <div className='col-6'><input className="contactbtn" type="button" value="Autofill form" id="submitButton" onClick={sendDataToBackend} /></div>
+                  <div className='col-5'><h5 className="title">Form Data</h5></div>
+                  <div className='col-4'>
+                    <div class="form-check form-switch">
+                      <input class="form-check-input" type="checkbox" id="submitSwitch" onChange={handleSubmitState} />
+                      <label class="form-check-label" for="submitSwitch">Submit</label>
+                    </div>
+                  </div>
+                  <div className='col-3 '><input className="" type="button" value="START" id="submitButton" onClick={sendDataToBackend} /></div>
                 </div>
                 <div className="input-container">
                   <div className='row'>
                     <div className='col-5'><label htmlFor="formurl">Form Url</label></div>
-                    <div className='col-7'><input value={contactformurl} onChange={handleFormUrl} type="text" name="formurl" className="input" id="formurl" required="" size={15} /></div>
+                    <div className='col-7'><textarea value={contactformurl} onChange={handleFormUrl} type="text" name="formurl" className="input" id="formurl" required="" cols={15} /></div>
                   </div>
                 </div>
 
@@ -434,7 +482,7 @@ export default function FormsFiller() {
                     <div className='col-7'><textarea value={messageNoLimit} onChange={handleMessageNoLimit} name="messageNoLimit" className="input" id="messageNoLimit" required="" cols={15} /></div>
                   </div>
                 </div>
-                
+
                 <div className="input-container">
                   <div className='row'>
                     <div className='col-5'><label htmlFor="roleTitle">Role Title</label></div>
@@ -446,6 +494,13 @@ export default function FormsFiller() {
                   <div className='row'>
                     <div className='col-5'><label htmlFor="bestTimeToRespond">Best Time To Respond</label></div>
                     <div className='col-7'><input value={bestTimeToRespond} onChange={handleBestTimeToRespond} type="text" name="bestTimeToRespond" className="input" id="bestTimeToRespond" required="" size={15} /></div>
+                  </div>
+                </div>
+
+                <div className="input-container">
+                  <div className='row'>
+                    <div className='col-5'><label htmlFor="date">Date</label></div>
+                    <div className='col-7'><input value={date} onChange={handleDate} type="text" name="date" className="input" id="date" required="" size={15} /></div>
                   </div>
                 </div>
 
@@ -468,8 +523,9 @@ export default function FormsFiller() {
                     <tr>
                       <th scope="col">#</th>
                       <th scope="col">Form URL</th>
-                      <th scope="col">Forms</th>
-                      <th scope="col">captcha</th>
+                      <th scope="col">Captcha</th>
+                      <th scope="col">Fill Status</th>
+                      <th scope="col">Submit Status</th>
                     </tr>
                   </thead>
                   {fieldsTableRenderer()}
@@ -490,10 +546,14 @@ export default function FormsFiller() {
 
 
 
-        <div className='col-4 overflow-auto h-100'>
+        <div className='col-4 overflow-auto' style={{ height: '85vh' }}>
           {screeenshotRenderer()}
         </div>
       </div>
+    </div>
+
+    <div className='position-fixed bottom-0 start-0 ' style={{ zIndex: '1000', opacity: '1', backgroundColor: 'whitesmoke' }}>
+      <span className='border border-top-0 border-1 rounded'>{progressInfo}</span>
     </div>
   </>)
 };
