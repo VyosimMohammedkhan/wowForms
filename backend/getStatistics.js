@@ -9,12 +9,12 @@ const connection = mysql.createPool({
 async function getFormFields(url) {
     const formQuery = `
     Select url, form_count, captcha, screenshot_name
-    from hrefkeywords.contactforms where url='${url}';
+    from hrefkeywords.contact_forms where url='${url}';
     `
     const fieldsquery = `
     Select F.field_name, F.isrequired, F.identity, F.form_number, F.submit_status
     FROM
-    hrefkeywords.contactforms C join hrefkeywords.formfields F on C.id=F.domain_id
+    hrefkeywords.contact_forms C join hrefkeywords.formfields F on C.id=F.domain_id
     where url='${url}'
     order by F.form_number;`
     let formsummary = await new Promise((resolve, reject) => {
@@ -37,16 +37,16 @@ async function getFormFields(url) {
         })
     })
 
-    let form_count = formsummary[0]?.form_count 
+    let form_count = formsummary[0]?.form_count
     let captcha = formsummary[0]?.captcha
     let screenshot_name = formsummary[0]?.screenshot_name
-    let submit_status = fields[0]?.submit_status
+    let submit_status = fields[0]?.submit_status ? fields[0]?.submit_status : "NA"
     fields = fields.map(field => {
         return {
             field_name: field?.field_name,
             isrequired: field?.isrequired,
             identity: field?.identity,
-            form_number : field?.form_number
+            form_number: field?.form_number
         };
     });
 
@@ -58,14 +58,14 @@ async function getFormFields(url) {
         submit_status,
         fields: fields
     }
-
+    console.log(result)
     return result
 }
 
 async function getStatistics() {
-    const totalCountQuery = `Select count(*) as totalCount from hrefkeywords.contactforms`;
-    const formsNotFoundQuery = `Select count(*) as formNotFound from hrefkeywords.contactforms where form_count=0`;
-    const captchaFormsQuery = `Select count(*) as captchaPresent from hrefkeywords.contactforms where captcha=1`;
+    const totalCountQuery = `Select count(*) as totalCount from hrefkeywords.contact_forms`;
+    const formsNotFoundQuery = `Select count(*) as formNotFound from hrefkeywords.contact_forms where form_count=0`;
+    const captchaFormsQuery = `Select count(*) as captchaPresent from hrefkeywords.contact_forms where captcha=1`;
     // const submitButtonQuery = `Select count(*) as submitButtonNotPresent from hrefkeywords.contactforms where submitButtonPresent=0`;
     // const lessthanthreeQuery = `select count(*) as countlessthanthree from 
     // (SELECT count(*) as count from
@@ -103,10 +103,10 @@ async function getStatistics() {
             captchaPresent = results[0].captchaPresent;
             // return executeQuery(submitButtonQuery);
             return { totalCount, formsNotFound, captchaPresent }
-        // })
-        // .then((results) => {
-        //     SubmitButtonNotPresent = results[0].submitButtonNotPresent;
-        //     return { totalCount, formsNotFound, captchaPresent, SubmitButtonNotPresent }
+            // })
+            // .then((results) => {
+            //     SubmitButtonNotPresent = results[0].submitButtonNotPresent;
+            //     return { totalCount, formsNotFound, captchaPresent, SubmitButtonNotPresent }
             // return executeQuery(lessthanthreeQuery);
             // }).then((results)=>{
             //     lessThanThreeFields = results[0].countlessthanthree;

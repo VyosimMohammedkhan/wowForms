@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 5000;
 // on C.id=F.domain_id
 // `
 
-const tablename = `From hrefkeywords.contactforms`
+const tablename = `From hrefkeywords.contact_forms`
 
 
 app.use(cors());

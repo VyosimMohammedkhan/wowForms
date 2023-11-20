@@ -88,7 +88,7 @@ export default function FormfieldsGrid(props) {
                 method: 'get',
                 headers: { "Content-Type": "application/json; charset=utf-8" }
             })
-            const response = await httpResponse.json() 
+            const response = await httpResponse.json()
             setTotalCount(response.totalCount)
             setFormNotPresent(response.formsNotFound)
             setCaptchaFound(response.captchaPresent)
@@ -117,7 +117,8 @@ export default function FormfieldsGrid(props) {
             try {
                 console.log('row clicked for ', event.data.url)
                 const response = await fetch('http://localhost:5000' + '/getformfields?url=' + event.data.url, { method: 'Get' });
-                let jsondata = await response.json(); 
+                let jsondata = await response.json();
+                console.log(jsondata)
                 props.getFormFields([jsondata]);
             } catch (err) {
                 console.log(err.message)
@@ -125,23 +126,35 @@ export default function FormfieldsGrid(props) {
 
         }
     }
+
+    const fillStatusRenderer = (params) => {
+        const count = params.value;
+
+        if (count > 1) {
+            return 'Successful';
+        } else {
+            return 'Failed';
+        }
+    };
     const containerStyle = useMemo(() => ({ width: '100%', height: '100%' }), []);
 
     const gridOptions = {
 
         rowModelType: 'serverSide',
         columnDefs: [
-            { headerName: "Row", valueGetter: "node.rowIndex + 1", pinned: 'left', width: 70},
-            { field: 'url', headerName: 'url', filter: 'agTextColumnFilter', width: 500, headerClass: 'custom-header-class' },
-            { field: 'form_count', header: 'form count', filter: 'agTextColumnFilter', width: 200, headerClass: 'custom-header-class' },
-            { field: 'captcha', header: 'captcha', filter: 'agTextColumnFilter', width: 200, headerClass: 'custom-header-class' },
+            { headerName: "Row", valueGetter: "node.rowIndex + 1", pinned: 'left', width: 70 },
+            { field: 'url', headerName: 'url', filter: 'agTextColumnFilter', width: 300, headerClass: 'custom-header-class' },
+            { field: 'form_count', headerName: 'Form Count', filter: 'agTextColumnFilter', width: 150, headerClass: 'custom-header-class' },
+            { field: 'captcha', headerName: 'Captcha', filter: 'agTextColumnFilter', width: 130, headerClass: 'custom-header-class' },
+            { field: 'field_count', headerName: 'Fill Status', cellRenderer: fillStatusRenderer, filter: 'agTextColumnFilter', width: 150, headerClass: 'custom-header-class' },
+            { field: 'submit_status', headerName: 'Submit Status', filter: 'agTextColumnFilter', width: 150, headerClass: 'custom-header-class' },
         ],
 
         defaultColDef: {
             editable: true,
             sortable: true,
             filter: true,
-            floatingFilter:true,
+            floatingFilter: true,
             resizable: true,
             // floatingFilter: true,
             // rowDrag: true,
@@ -173,7 +186,7 @@ export default function FormfieldsGrid(props) {
                 <button type="button" onClick={onRefresh}>Refresh Data</button>
                 <div>
                     <button type="button" className="border border-info mx-2">Total : {totalcount}</button>
-                    <button type="button" className="border border-info mx-2">Captcha : {captchaFound} ({Math.round((captchaFound/totalcount)*100)}%)</button>
+                    <button type="button" className="border border-info mx-2">Captcha : {captchaFound} ({Math.round((captchaFound / totalcount) * 100)}%)</button>
                     <button type="button" className="border border-info mx-2">No Forms in : {formNotPresent}</button>
                     {/*<button type="button" className="border border-info">SubmitButton Not found : {submitButtonNotFound}</button>
                      <button type="button" className="btn btn-secondary btn-sm border border-info">less than 3 fields : {lessThanThreeFields}</button> */}

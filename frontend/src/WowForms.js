@@ -34,7 +34,7 @@ export default function FormsFiller() {
   const [submitEnabled, setSubmitEnabled] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [progressInfo, setProgressInfo] = useState("this is progress info")
+  const [progressInfo, setProgressInfo] = useState("")
   const [result, setResult] = useState([])
 
   const sendDataToBackend = async () => {
@@ -71,6 +71,7 @@ export default function FormsFiller() {
 
       socket.onclose = event => {
         setProcessing(false)
+        setProgressInfo("")
       }
 
 
@@ -217,7 +218,7 @@ export default function FormsFiller() {
     setUnidentified(event.target.value);
   };
 
-  const screeenshotRenderer = () => {
+  const screeenshotRenderer1 = () => {
     const path = './images/';
     return (<Carousel controls indicators interval='1000000000'>
       {result.map(form => {
@@ -234,7 +235,7 @@ export default function FormsFiller() {
                     alt={'screenshot for ' + form.screenshot_name}
                   />
                   <Carousel.Caption className="d-none d-md-block">
-                    <p style={{color:'black', backgroundColor:'whitesmoke'}}>{form.screenshot_name}</p>
+                    <p style={{ color: 'black', backgroundColor: 'whitesmoke' }}>{form.screenshot_name}</p>
                   </Carousel.Caption>
                 </TransformComponent>
               </TransformWrapper>
@@ -250,8 +251,8 @@ export default function FormsFiller() {
                     src={require(`${path}notfound.jpeg`)}
                     alt={'screenshot not available for selected domain'}
                   />
-                   <Carousel.Caption className="d-none d-md-block">
-                    <p style={{color:'black', backgroundColor:'whitesmoke'}}>This page failed to load</p>
+                  <Carousel.Caption className="d-none d-md-block">
+                    <p style={{ color: 'black', backgroundColor: 'whitesmoke' }}>failed to load for {form.screenshot_name}</p>
                   </Carousel.Caption>
                 </TransformComponent>
               </TransformWrapper>
@@ -262,31 +263,77 @@ export default function FormsFiller() {
     </Carousel>)
   }
 
+  const screeenshotRenderer2 = () => {
+    const path = './images/';
+    return (<Carousel controls indicators interval='1000000000'>
+      {result.map(form => {
+        // if (form.Complete == true)
+        try {
+          return (
+
+            <Carousel.Item>
+              <TransformWrapper>
+                <TransformComponent>
+                  <img
+                    className="d-block w-100"
+                    src={require(`${path}${form.screenshot_name}after.jpeg`)}
+                    alt={'screenshot for ' + form.screenshot_name}
+                  />
+                  <Carousel.Caption className="d-none d-md-block">
+                    <p style={{ color: 'black', backgroundColor: 'whitesmoke' }}>{form.screenshot_name}</p>
+                  </Carousel.Caption>
+                </TransformComponent>
+              </TransformWrapper>
+            </Carousel.Item>
+          )
+        } catch {
+          return (
+            <Carousel.Item>
+              <TransformWrapper>
+                <TransformComponent>
+                  <img
+                    className="d-block w-100"
+                    src={require(`${path}submit_status_NA.jpg`)}
+                    alt={'screenshot not available for selected domain'}
+                  />
+                  <Carousel.Caption className="d-none d-md-block">
+                    <p style={{ color: 'black', backgroundColor: 'whitesmoke' }}>This page failed to load</p>
+                  </Carousel.Caption>
+                </TransformComponent>
+              </TransformWrapper>
+            </Carousel.Item>
+          )
+        }
+      })}
+    </Carousel>)
+  }
+
+
   const fieldsTableRenderer = () => {
     console.log(result)
     return (<tbody>
       {result.map((form, index) => {
         // if (form.Complete == true)
         return (<>
-        <tr className="accordion-toggle collapsed"
-          key={index}
-          id={"accordion"+index}
-          data-mdb-toggle="collapse"
-          data-mdb-parent={"#accordion"+index}
-          href={"#collapseOne"+index}
-          aria-controls={"collapseOne"+index}
-        >
-          <td className="expand-button"></td>
-          <td width={'100px'}>{form.url}</td>
-          <td>{form.captcha ? "Y" : "N"}</td>
-          <td>{form.fields.length > 1 ? "Successful" : "Failed"}</td>
-          <td>{form.submit_status}</td>
-        </tr>
+          <tr className="accordion-toggle collapsed"
+            key={index}
+            id={"accordion" + index}
+            data-mdb-toggle="collapse"
+            data-mdb-parent={"#accordion" + index}
+            href={"#collapseOne" + index}
+            aria-controls={"collapseOne" + index}
+          >
+            <td className="expand-button"></td>
+            <td width={'100px'}>{form.url}</td>
+            <td>{form.captcha ? "Y" : "N"}</td>
+            <td>{form.fields.length > 1 ? "Successful" : "Failed"}</td>
+            <td>{form.submit_status}</td>
+          </tr>
 
           <tr className="hide-table-padding">
             <td></td>
             <td colspan="3">
-              <div id={"collapseOne"+index} className="collapse in p-3">
+              <div id={"collapseOne" + index} className="collapse in p-3">
                 <div style={{ border: '1px ridge', borderRadius: '2%', padding: '2%' }}>
                   <div className="row" style={{ borderBottom: 'ridge' }}>
                     <div className="col-2">Form No.</div>
@@ -546,8 +593,9 @@ export default function FormsFiller() {
 
 
 
-        <div className='col-4 overflow-auto' style={{ height: '85vh' }}>
-          {screeenshotRenderer()}
+        <div className='col-4'>
+          <div className='overflow-auto' style={{ height: '43vh' }}>{screeenshotRenderer1()}</div>
+          <div className='overflow-auto' style={{ height: '43vh' }}>{screeenshotRenderer2()}</div>
         </div>
       </div>
     </div>

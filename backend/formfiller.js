@@ -39,23 +39,31 @@ const pupClusOptions = {
 
 async function fillforms(ws, urls, data, submitEnabled) {
 
+    let result = [];
     let count = urls.length
     let remaining = count
-    let result = [];
+    
+    let currentProgressPercent =0
+    let pcpp = Number.parseInt(((((count - remaining + 1) / count) * 100)/3 ).toFixed(2))
+
+
     const blocker = await PuppeteerBlocker.fromLists(fetch, ['https://secure.fanboy.co.nz/fanboy-cookiemonster.txt']);
     const cluster = await Cluster.launch(pupClusOptions);
 
     await cluster.task(async ({ page, data: url }) => {
         console.log(remaining, " forms remaining")
-        ws.send(JSON.stringify({ progress: (((count - remaining) / count) * 100).toFixed(2) }))
-        await blocker.enableBlockingInPage(page);
+        
         let screenshotname = new URL(url).hostname
-        let formDetails = {}
-        let dataForDB = {}
-
+        
+        let formDetails = { url, screenshotname, captcha: false };
+        let dataForDB = { url, captcha: false, screenshot_name: screenshotname, form_count: 0, forms: [] }
+  
+        await blocker.enableBlockingInPage(page);
+        
         try {
+            ws.send(JSON.stringify({ progress: currentProgressPercent+=pcpp }))
             ws.send(JSON.stringify({ progressInfo: `navigating to ${url}` }))
-            formDetails = { url, screenshotname };
+            
             page.once('load', () => handleCookiePopups(page, url, rules, autoconsent));
             page.on('dialog', async (dialog) => await handleDialog(dialog))
 
@@ -64,22 +72,30 @@ async function fillforms(ws, urls, data, submitEnabled) {
             await scrollPageToBottom(page, { size: 100, delay: 100 })
             await handlePopupWidgets(page)
 
+            ws.send(JSON.stringify({ progress: currentProgressPercent+=pcpp }))
             ws.send(JSON.stringify({ progressInfo: `filling form on ${url}` }))
-            formDetails.formsData = await handleForm(page, data, formDetails, submitEnabled)
+            
+            formDetails.formsData = await handleForm(page, data, formDetails, submitEnabled) 
             dataForDB = await filterDataforDB(formDetails)
-            console.log("datafordb", dataForDB)
+
+            ws.send(JSON.stringify({ progress: currentProgressPercent+=pcpp }))
             ws.send(JSON.stringify({ progressInfo: `sending data to DB` }))
-            await insertDataToMysql(dataForDB)
-            await delay(1000)
+            
+
+
         } catch (err) {
+
             console.log(err)
             ws.send(JSON.stringify({ progressInfo: `got error on ${url} : ${err.message}` }))
-            dataForDB = { url, captcha: false, screenshot_name:screenshotname, form_count: 0, forms: [] }
-        } finally {
-            await ws.send(JSON.stringify(dataForDB))
-            console.log("datafordb", dataForDB)
-            result.push(dataForDB)
+            
 
+        } finally {
+            
+            await insertDataToMysql(dataForDB)
+            await delay(1000)
+            await ws.send(JSON.stringify(dataForDB)) 
+            
+            result.push(dataForDB)
             remaining--
         }
 
@@ -115,21 +131,25 @@ async function handleForm(page, data, formDetails, submitEnabled) {
     }
 
     if (formElements.length > 0) {
-        formDetails.captchaFound = await isCaptchaPresent(formElements)
+        formDetails.captcha = await isCaptchaPresent(formElements)
 
         for (let element of formElements) {
 
             formData = await identifyFormFields(await getFieldsFromForm(page, element))
+
             await fillTextInputs(page, formData.textfields, data)
             await delay(1000)
+            await page.screenshot({ type: 'jpeg', path: `${screenshotpath}${screenshotname}before.jpeg`, fullPage: true });
 
-            if (!formDetails.captchaFound && submitEnabled) {
+            if (!formDetails.captcha && submitEnabled) {
                 await submitForm(formData.buttons)
                 formData.submit_status = await confirmSubmitStatus(page, element, url, formData.textfields[0], data)
+                await page.screenshot({ type: 'jpeg', path: `${screenshotpath}${screenshotname}after.jpeg`, fullPage: true });
             } else {
                 formData.submit_status = "NA"
             }
 
+            
             console.log('submitStatus for ', url, ' :', formData.submit_status)
             formsData.push(formData)
         }
@@ -139,7 +159,7 @@ async function handleForm(page, data, formDetails, submitEnabled) {
 
     }
 
-    await page.screenshot({ type: 'jpeg', path: `${screenshotpath}${screenshotname}before.jpeg`, fullPage: true });
+    
     await delay(1 * 1000)
     return formsData
 }

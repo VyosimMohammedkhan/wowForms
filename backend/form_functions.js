@@ -25,10 +25,10 @@ const fieldIdentities = {
     website: /website|domain/i,
     subject: /subject|topic/i,
     zip: /zip|post/i,
-    address: /(?!.*(mail))(?=.*(address|location).*)/i,
     city: /city/i,
     state: /state/i,
     country: /country/i,
+    address: /(?!.*(mail))(?=.*(address|location).*)/i,
     fullname: /name/i,
     message200: /(?=.*(question|comment|describe|detail).*)/i
 }
@@ -58,10 +58,9 @@ async function getFieldsFromForm(page, form) {
     const checkboxes = await identifyGroupedFields(await groupFieldsByNameAttr(await removeInvisibleFields(await form.$$(selectors.checkboxes))))
     await handleRadiosAndCheckbox(checkboxes)
 
-
     const fileinputs = await identifyUngroupedFields(await removeInvisibleFields(await form.$$(selectors.fileinputs)));
-    console.log(fileinputs)
     await handleFileInputs(fileinputs)
+
     const textfields = await removeInvisibleFields(await form.$$(selectors.textfields));
     const buttons = await removeInvisibleFields(await form.$x(xpaths.submitbuttonxpath));
 
@@ -318,13 +317,16 @@ async function getFieldIdentity(field, tagName, fieldName, id, nameattr, value, 
             return 'checkbox'
 
         for (const [identity, regex] of Object.entries(fieldIdentities)) {
-            if (id?.match(regex) ||
-                nameattr?.match(regex) ||
-                fieldName?.match(regex) ||
-                value?.match(regex) ||
-                data_aid?.match(regex)) {
+            if (fieldName?.match(regex))
                 return identity
-            }
+            if (data_aid?.match(regex))
+                return identity
+            if (value?.match(regex))
+                return identity
+            if (id?.match(regex))
+                return identity
+            if (nameattr?.match(regex))
+                return identity
         }
     }
 
@@ -487,8 +489,7 @@ async function handleFileInputs(fileInputs) {
 
 async function fillTextInputs(page, fields, data) {
     for (let field of fields) {
-        let input = data[field.identity].toString()
-        console.log(field)
+        let input = data[field.identity].toString() 
         if (field.identity.startsWith('message')) await pasteIntoField(page, field.elementhandle, input)
         else await typeDatainField(page, field.elementhandle, input)
     }
